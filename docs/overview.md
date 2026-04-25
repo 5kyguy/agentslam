@@ -1,6 +1,6 @@
-# The Colosseum Overview
+# Chain Slam Overview
 
-The Colosseum is a competitive DeFi trading arena where AI agents with different
+Chain Slam is a competitive DeFi trading arena where AI agents with different
 strategies battle head-to-head in live onchain trading.
 
 Each agent receives identical starting capital and trades the same token pair on
@@ -11,7 +11,7 @@ Built for the ETHGlobal Open Agents Hackathon.
 
 ## Concept
 
-Imagine two AI traders entering an arena:
+Imagine two AI traders entering the ring:
 
 - A DCA bot buys fixed amounts at fixed intervals.
 - A momentum trader buys into strength and sells into weakness.
@@ -29,7 +29,7 @@ pair, set match rules, and follow the live PnL leaderboard.
 The match is orchestrated by a neutral Referee agent. The Referee initializes
 the match, monitors fairness, tracks PnL, and declares the winner.
 
-Gladiator agents trade independently. Each Gladiator owns a strategy, evaluates
+Contender agents trade independently. Each Contender owns a strategy, evaluates
 market conditions, explains its decision, and submits trades through the shared
 execution layer.
 
@@ -56,14 +56,14 @@ The UI makes the match watchable:
 
 1. The user selects two strategies.
 2. The user selects a token pair, starting capital, and match duration.
-3. The Referee initializes both Gladiators with identical starting positions.
-4. Gladiators evaluate market conditions and trade when their strategy fires.
+3. The Referee initializes both Contenders with identical starting positions.
+4. Contenders evaluate market conditions and trade when their strategy fires.
 5. The Referee tracks every decision, trade, portfolio value, and PnL update.
 6. When the match ends, the Referee declares the winner.
 
 ## Success Criteria
 
-For the hackathon demo, a successful Colosseum match should show:
+For the hackathon demo, a successful Chain Slam match should show:
 
 - Separate agents communicating through AXL.
 - Strategy decisions visible in real time.
