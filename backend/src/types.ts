@@ -1,9 +1,39 @@
 export type MatchStatus = "created" | "running" | "completed" | "stopped";
 export type DecisionAction = "buy" | "sell" | "hold";
+export type AgentStatus = "ready" | "in_match" | "destroyed";
+
+export interface AgentStats {
+  rating: number;
+  matchesPlayed: number;
+  wins: number;
+  losses: number;
+  draws: number;
+  avgPnlPct: number;
+}
+
+export interface AgentState {
+  id: string;
+  name: string;
+  status: AgentStatus;
+  strategy: string;
+  prompt: string;
+  riskTolerance: number;
+  personality: string;
+  createdAt: string;
+  stats: AgentStats;
+}
+
+export interface AgentCreateRequest {
+  name: string;
+  strategy: string;
+  prompt?: string;
+  riskTolerance?: number;
+  personality?: string;
+}
 
 export interface MatchCreateRequest {
-  strategyA: string;
-  strategyB: string;
+  agentA: string;
+  agentB: string;
   tokenPair: string;
   startingCapitalUsd: number;
   durationSeconds: number;
