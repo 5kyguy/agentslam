@@ -1,11 +1,8 @@
 # Chain Slam Overview
 
-Chain Slam is a competitive DeFi trading arena where AI agents with different
-strategies battle head-to-head in live onchain trading.
+Chain Slam is a live DeFi trading arena where AI agents with different strategies battle head-to-head in real onchain markets.
 
-Each agent receives identical starting capital and trades the same token pair on
-Uniswap. Spectators watch the match in real time, see every decision the agents
-make, and can pick or bet on the strategy they think will win.
+Two agents enter with the same starting capital, the same token pair, and different trading logic. Every decision is visible. Every trade is tracked. The winner is decided by final portfolio value.
 
 Built for the ETHGlobal Open Agents Hackathon.
 
@@ -17,29 +14,39 @@ Imagine two AI traders entering the ring:
 - A momentum trader buys into strength and sells into weakness.
 - Both start with the same capital.
 - Both trade the same market.
+- Both use the same execution layer.
 - Every trade is onchain.
-- Every decision is visible.
+- Every decision is visible in real time.
 - The winner is decided by final portfolio value.
 
-The audience does not just watch. They can select strategies, choose the token
-pair, set match rules, and follow the live PnL leaderboard.
+The audience does not just watch. They can pick the two strategies, choose the token pair, set the match format, and follow the live PnL battle as it unfolds.
 
 ## Core Experience
 
-The match is orchestrated by a neutral Referee agent. The Referee initializes
-the match, monitors fairness, tracks PnL, and declares the winner.
+### Referee Agent
 
-Contender agents trade independently. Each Contender owns a strategy, evaluates
-market conditions, explains its decision, and submits trades through the shared
-execution layer.
+The match is orchestrated by a neutral Referee agent. The Referee initializes the match, enforces the rules, tracks PnL, monitors fairness, and declares the winner when the clock runs out.
 
-The UI makes the match watchable:
+The Referee does not trade. Its job is to make the arena trustworthy and watchable.
 
-- Live leaderboard
-- Agent decision feed
-- Strategy selector
-- Trade history
-- Final match result and analytics
+### Contender Agents
+
+Each Contender owns exactly one strategy. A Contender evaluates market conditions, explains its reasoning in plain language, and then decides whether to buy, sell, or hold.
+
+Contenders compete independently. They do not coordinate with each other, and they operate under the same market and execution constraints.
+
+### The UI
+
+The product should feel like watching a live fight between strategies, not a black-box trading bot.
+
+| Component | What it shows |
+| --------- | ------------- |
+| Live leaderboard | Real-time PnL and current standing |
+| Decision feed | Each agent's reasoning in plain English |
+| Trade history | Every swap with time, size, direction, and transaction reference |
+| Strategy selector | Pick the two strategies before the match starts |
+| Match timer | Countdown to the end of the round |
+| Winner screen | Final result, match stats, and post-match summary |
 
 ## Built-In Strategies
 
@@ -57,16 +64,15 @@ The UI makes the match watchable:
 1. The user selects two strategies.
 2. The user selects a token pair, starting capital, and match duration.
 3. The Referee initializes both Contenders with identical starting positions.
-4. Contenders evaluate market conditions and trade when their strategy fires.
+4. On each market tick, both Contenders evaluate the market and decide whether to trade.
 5. The Referee tracks every decision, trade, portfolio value, and PnL update.
-6. When the match ends, the Referee declares the winner.
+6. When the match ends, the Referee declares the winner and publishes the final result.
 
-## Success Criteria
+## Why It Works
 
-For the hackathon demo, a successful Chain Slam match should show:
+Chain Slam is compelling because it turns strategy behavior into a spectator experience:
 
-- Separate agents communicating through AXL.
-- Strategy decisions visible in real time.
-- Uniswap quotes or swaps powering market interaction.
-- KeeperHub or a clear execution abstraction handling transaction submission.
-- A final winner based on transparent portfolio valuation.
+- Same market, same capital, same execution constraints
+- Visible reasoning instead of black-box automation
+- Real-time leaderboard movement and narrative tension
+- Clear win condition based on transparent portfolio valuation

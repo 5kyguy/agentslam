@@ -7,3 +7,8 @@ Two AI trading agents enter the ring with the same starting capital, the same to
 ## Docs
 
 - [Project overview](docs/overview.md)
+- [Architecture](docs/architecture.md)
+- [Technical spec](docs/technical-spec.md)
+- [Match types](docs/match-types.md)
+- [Ranking system](docs/ranking-system.md)
+- [Demo plan](docs/demo-plan.md)
