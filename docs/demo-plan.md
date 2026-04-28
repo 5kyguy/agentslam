@@ -8,13 +8,31 @@ The demo should prove that Agent Slam is a real, watchable agent-vs-agent tradin
 
 A successful demo shows:
 
-- A neutral Referee coordinating a live match
-- Two separate Contender agents running different strategies
-- AXL-based communication between agents
-- Live strategy reasoning visible in the UI
-- Uniswap-powered market interaction
-- KeeperHub-backed execution or a clear execution abstraction
+- A backend server coordinating a live match as referee
+- Two separate Python agent processes running different strategies
+- WebSocket communication between backend and agents
+- Live strategy reasoning visible in the decision feed
+- Real or simulated market prices driving match ticks
 - A final winner based on transparent portfolio valuation
+
+## Setup Before The Demo
+
+```bash
+# 1. Start PostgreSQL
+docker compose up -d
+
+# 2. Install Python agent package
+cd agents && pip install -e . && cd ..
+
+# 3. Configure backend
+cp backend/.env.example backend/.env
+# Edit .env: set BACKEND_MODE=real, AGENTS_PACKAGE_DIR=/path/to/agentslam/agents
+
+# 4. Start the backend
+cd backend && npm run dev
+```
+
+Optional: set `UNISWAP_ENABLED=true` and `UNISWAP_API_KEY=...` for real Uniswap price feeds.
 
 ## What The Audience Should Understand
 
@@ -22,7 +40,7 @@ By the end of the demo, a viewer should understand four things:
 
 1. Two agents are trading the same market under the same constraints.
 2. Each strategy behaves differently and explains its choices.
-3. The Referee makes the match fair and easy to follow.
+3. The backend server acts as a neutral referee making the match fair and easy to follow.
 4. The winner is determined by observable trading performance, not hidden heuristics.
 
 ## Suggested Match Setup
@@ -30,25 +48,25 @@ By the end of the demo, a viewer should understand four things:
 Use a setup that is easy to explain and likely to produce visible decision differences:
 
 | Field | Recommendation |
-| ----- | -------------- |
+| --- | --- |
 | Strategy A | Momentum Trader |
 | Strategy B | Mean Reverter |
 | Market | `WETH/USDC` |
 | Starting capital | `1000 USDC` equivalent each |
 | Match duration | `5 minutes` |
-| Tick interval | `10-30 seconds` |
+| Tick interval | `10 seconds` |
 
 This creates a clean narrative because momentum and mean reversion typically react differently to the same market moves.
 
 ## Demo Script
 
 | Time | Action |
-| ---- | ------ |
+| --- | --- |
 | `0:00` | Open the UI and explain the arena: two strategies, same market, same starting capital, one winner |
 | `0:20` | Select two strategies and a token pair, then start the match |
-| `0:40` | Show the Referee and both Contenders running as separate agents communicating over AXL |
+| `0:40` | Explain that the backend just spawned two Python processes, each running a different strategy |
 | `1:00` | Highlight the decision feed and explain that each agent publishes plain-language reasoning |
-| `1:30` | Show at least one trade flowing through the execution layer and appearing in the trade history |
+| `1:30` | Show at least one trade flowing through and appearing in the trade history with PnL impact |
 | `2:00` | Focus on the live leaderboard as the strategies diverge in PnL |
 | `2:40` | Let the match end and show the winner screen with final portfolio values and match stats |
 | `3:00` | Invite the judge or viewer to choose a different pair of strategies and run another match |
@@ -73,3 +91,4 @@ If the core loop is already stable, the following additions can make the demo st
 - Post-match analytics summary
 - Volatility Duel or Altcoin Duel presets
 - A quick rematch flow with different strategies
+- Real Uniswap price feeds for live market data

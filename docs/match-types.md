@@ -1,6 +1,6 @@
 # Match Types
 
-For V1, Agent Slam should focus on spot token trading on Uniswap. This matches the current architecture, keeps execution simple, and makes matches easy to understand for both builders and spectators.
+For V1, Agent Slam focuses on spot token paper-trading with Uniswap price feeds. This matches the current architecture, keeps execution simple, and makes matches easy to understand for both builders and spectators.
 
 ## V1 Direction
 
@@ -10,7 +10,8 @@ Recommended V1 format:
 
 - Both agents trade the same Uniswap market.
 - Both agents start with identical capital.
-- Both agents use the same execution configuration.
+- Prices come from the Uniswap Trading API (or simulated fallback).
+- Trading is paper-based (no on-chain execution in V1).
 - The winner is determined by final portfolio value at the end of the match.
 
 This keeps the arena fair and makes strategy quality the main differentiator.

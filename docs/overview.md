@@ -1,6 +1,6 @@
 # Agent Slam Overview
 
-Agent Slam is a live DeFi trading arena where AI agents with different strategies battle head-to-head in real onchain markets.
+Agent Slam is a live trading arena where AI agents with different strategies battle head-to-head in paper-traded markets.
 
 Two agents enter with the same starting capital, the same token pair, and different trading logic. Every decision is visible. Every trade is tracked. The winner is decided by final portfolio value.
 
@@ -14,8 +14,6 @@ Imagine two AI traders entering the ring:
 - A momentum trader buys into strength and sells into weakness.
 - Both start with the same capital.
 - Both trade the same market.
-- Both use the same execution layer.
-- Every trade is onchain.
 - Every decision is visible in real time.
 - The winner is decided by final portfolio value.
 
@@ -23,15 +21,15 @@ The audience does not just watch. They can pick the two strategies, choose the t
 
 ## Core Experience
 
-### Referee Agent
+### Backend Server (Referee Role)
 
-The match is orchestrated by a neutral Referee agent. The Referee initializes the match, enforces the rules, tracks PnL, monitors fairness, and declares the winner when the clock runs out.
+The match is orchestrated by a TypeScript Fastify server that acts as the neutral referee. It initializes matches, enforces rules, tracks PnL, monitors fairness, and declares the winner when the clock runs out.
 
-The Referee does not trade. Its job is to make the arena trustworthy and watchable.
+The server does not trade. Its job is to make the arena trustworthy and watchable.
 
-### Contender Agents
+### Python Agent Processes (Contenders)
 
-Each Contender owns exactly one strategy. A Contender evaluates market conditions, explains its reasoning in plain language, and then decides whether to buy, sell, or hold.
+Each Contender is a Python process running a single strategy. The backend spawns one process per contender when a match starts and kills them when it ends. Agents communicate with the backend over WebSocket — they receive market context on each tick and respond with buy/sell/hold decisions.
 
 Contenders compete independently. They do not coordinate with each other, and they operate under the same market and execution constraints.
 
@@ -40,10 +38,10 @@ Contenders compete independently. They do not coordinate with each other, and th
 The product should feel like watching a live fight between strategies, not a black-box trading bot.
 
 | Component | What it shows |
-| --------- | ------------- |
+| --- | --- |
 | Live leaderboard | Real-time PnL and current standing |
 | Decision feed | Each agent's reasoning in plain English |
-| Trade history | Every swap with time, size, direction, and transaction reference |
+| Trade history | Every trade with time, size, direction, and gas cost |
 | Strategy selector | Pick the two strategies before the match starts |
 | Match timer | Countdown to the end of the round |
 | Winner screen | Final result, match stats, and post-match summary |
@@ -51,7 +49,7 @@ The product should feel like watching a live fight between strategies, not a bla
 ## Built-In Strategies
 
 | Strategy | Description | Risk Profile |
-| -------- | ----------- | ------------ |
+| --- | --- | --- |
 | DCA Bot | Buys fixed amounts at fixed intervals regardless of price | Low risk, steady |
 | Momentum Trader | Buys when price rises and sells when it falls | Medium risk, trend-dependent |
 | Mean Reverter | Bets that extreme prices will revert to the mean | Medium risk, contrarian |
@@ -59,14 +57,21 @@ The product should feel like watching a live fight between strategies, not a bla
 | Grid Trader | Places buy and sell orders around fixed price intervals | Low-medium risk, range-bound |
 | Random Walk | Makes random trades as a control strategy | Chaos, baseline |
 
+All strategies are purely algorithmic — no LLM dependency — for speed, reliability, and predictable behavior.
+
 ## Match Flow
 
 1. The user selects two strategies.
 2. The user selects a token pair, starting capital, and match duration.
-3. The Referee initializes both Contenders with identical starting positions.
-4. On each market tick, both Contenders evaluate the market and decide whether to trade.
-5. The Referee tracks every decision, trade, portfolio value, and PnL update.
-6. When the match ends, the Referee declares the winner and publishes the final result.
+3. The backend spawns two Python agent processes, one for each contender.
+4. Both agents connect via WebSocket and the tick loop begins.
+5. On each tick (every 10 seconds), both agents evaluate the market and decide whether to trade.
+6. The backend tracks every decision, trade, portfolio value, and PnL update.
+7. When the match ends, the backend kills the agent processes, declares the winner, and updates ratings.
+
+## Price Feeds
+
+By default, prices are simulated with a random walk. Set `UNISWAP_ENABLED=true` with a valid API key to use real Uniswap Trading API quotes. On-chain execution is not yet implemented — all trading is paper-based.
 
 ## Why It Works
 

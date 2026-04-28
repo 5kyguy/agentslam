@@ -1,135 +1,161 @@
 # Architecture
 
-Agent Slam is organized around three live agent roles:
-
-- Referee agent: orchestrates matches, enforces rules, tracks PnL, and declares winners.
-- Contender A: trades according to one strategy.
-- Contender B: trades according to another strategy.
-
-Each agent runs as its own process with its own AXL node.
+Agent Slam is a Fastify (TypeScript) backend that orchestrates head-to-head matches between Python agent processes. PostgreSQL persists all state; WebSocket streams live updates to the UI.
 
 ```bash
-                          AGENT SLAM UI
-                 live leaderboard, feed, setup
-                                  |
-                              HTTP / WS
-                                  |
-                           REFEREE AGENT
-                    rules, PnL, events, winner
-                                  |
-                              AXL mesh
-                         arena message channel
-                           /              \
-                  CONTENDER A          CONTENDER B
-                  strategy one         strategy two
-                           \              /
-                    Uniswap API + KeeperHub
-                                  |
-                         onchain execution
+                        AGENT SLAM UI
+               live leaderboard, feed, setup
+                            |
+                        HTTP / WS
+                            |
+                    ┌───────┴───────┐
+                    │  Fastify API   │
+                    │  (TypeScript)  │
+                    └───┬───────┬───┘
+                        |       |
+              ┌─────────┘       └──────────┐
+              |                             |
+    ┌─────────┴─────────┐       ┌──────────┴──────────┐
+    │  RealMatchService  │       │  AgentProcessManager │
+    │  (Referee role)    │       │  spawn / kill procs  │
+    └─────────┬─────────┘       └──────────┬──────────┘
+              |                             |
+        WS /ws/matches/:id          WS /ws/agent/:id
+              |                        /        \
+    ┌─────────┴─────────┐    ┌───────┴───┐  ┌────┴─────┐
+    │    UI Clients      │    │ Python A  │  │ Python B │
+    │  (snapshots, feed) │    │ Strategy  │  │ Strategy │
+    └───────────────────-┘    └───────────┘  └──────────┘
+                                    |
+                          ┌─────────┴─────────┐
+                          │ Uniswap Trading API│
+                          │ (optional prices)  │
+                          └───────────────────┘
 ```
 
-## Referee Agent
+## Backend Server (TypeScript / Fastify)
 
-The Referee is the neutral orchestrator. It does not trade.
+The backend is the referee and source of truth. It does not trade — it orchestrates.
 
 Responsibilities:
 
-- Create and configure matches.
-- Spawn or connect the two Contender agents.
-- Broadcast match announcements and status updates.
-- Monitor heartbeats and rule violations.
-- Track portfolio balances, gas cost, trades, and PnL.
-- Stream updates to the UI.
-- Declare the winner when the match ends.
+- Register agents and manage their lifecycle state.
+- Create matches, enforce rules, track PnL, and declare winners.
+- Spawn Python agent processes on match start, kill them on match end.
+- Own all portfolio balances and trade execution (paper trading).
+- Stream live match updates to UI clients via WebSocket.
+- Persist all state to PostgreSQL.
 
-Core API surface:
+Key modules:
 
-| Method | Path | Description |
-| ------ | ---- | ----------- |
-| `POST` | `/api/matches` | Create a match |
-| `GET` | `/api/matches/{match_id}` | Get match state |
-| `GET` | `/api/matches/{match_id}/trades` | Get trade history |
-| `GET` | `/api/matches/{match_id}/feed` | Get decision feed |
-| `POST` | `/api/matches/{match_id}/stop` | Stop a match |
-| `GET` | `/api/strategies` | List available strategies |
-| `WS` | `/ws/matches/{match_id}` | Stream live match updates |
+| Module | File | Purpose |
+| --- | --- | --- |
+| `RealMatchService` | `services/real-match-service.ts` | Match lifecycle, tick loop, portfolio tracking |
+| `AgentProcessManager` | `agents/process-manager.ts` | Spawn and kill Python agent processes |
+| `RemoteAgentConnection` | `agents/remote-agent.ts` | WS-based evaluate with 8s timeout |
+| `AgentService` | `services/agent-service.ts` | Agent CRUD and stats |
+| `PostgresStore` | `store/postgres-store.ts` | Write-through persistence |
+| `UniswapClient` | `integrations/uniswap.ts` | Real price quotes (optional) |
 
-## Contender Agents
+## Python Agent Processes
 
-A Contender is a modular trading agent. It owns one strategy, a portfolio, and an execution wallet.
+Each contender runs as a separate Python process. The backend spawns them via `AgentProcessManager` and communicates over WebSocket.
 
-Core loop:
+### Agent Lifecycle
 
-1. Poll or derive market data from Uniswap.
-2. Evaluate the active strategy.
-3. Broadcast the decision and reasoning.
-4. If the signal is `buy` or `sell`, request a quote and build a swap.
-5. Submit execution through KeeperHub.
-6. Report the trade result to the Referee.
+1. **Spawn**: On match creation, `AgentProcessManager.spawn()` starts `python3 -m chain_slam_agents --agent-id <id> --strategy <strategy> --ws-url <url>`.
+2. **Connect**: The Python process connects to `/ws/agent/:agentId`. The `RemoteAgentConnection.register()` binds the socket.
+3. **Tick loop**: Every 10 seconds, `RealMatchService` sends a `tick` message with market context. Each agent evaluates its strategy and returns a `decision`.
+4. **End**: When the match ends or is stopped, the backend sends `match_end` and kills the process.
 
-## AXL Mesh
+### Agent SDK (`agents/chain_slam_agents/`)
 
-AXL is the agent communication layer. The project models a logical arena channel on top of direct AXL peer messages.
+```bash
+agents/
+├── pyproject.toml
+└── chain_slam_agents/
+    ├── __init__.py
+    ├── __main__.py         # Entry point
+    ├── runner.py           # WS connection + message loop
+    ├── base.py             # Strategy ABC
+    ├── types.py            # TickContext, StrategySignal, ActionType
+    └── strategies/
+        ├── __init__.py     # Strategy registry
+        └── impl.py         # All 6 strategy implementations
+```
 
-Node topology:
+### Strategy Interface
 
-| Agent | AXL Node ID | Port |
-| ----- | ----------- | ---- |
-| Referee | `agent-slam-referee-001` | `8001` |
-| Contender A | `agent-slam-contender-a` | `8002` |
-| Contender B | `agent-slam-contender-b` | `8003` |
+```python
+from abc import ABC, abstractmethod
+from .types import TickContext, StrategySignal
 
-AXL node IDs should be static. Match-specific context belongs in message payloads, not in node IDs.
+class Strategy(ABC):
+    @abstractmethod
+    def evaluate(self, ctx: TickContext) -> StrategySignal: ...
 
-Logical topics:
+    @abstractmethod
+    def describe(self) -> str: ...
+```
 
-| Topic | Purpose |
-| ----- | ------- |
-| `agent-slam/arena` | Match events and agent decisions |
-| `agent-slam/trade_reports` | Execution results from Contenders |
-| `agent-slam/heartbeat` | Agent health checks |
-| `agent-slam/taunts` | Optional inter-agent banter |
+### Built-in Strategies
+
+| ID | Name | Description | Risk |
+| --- | --- | --- | --- |
+| `dca` | DCA Bot | Buys fixed amounts at fixed intervals | Low |
+| `momentum` | Momentum Trader | Buys into strength, sells into weakness | Medium |
+| `mean_reverter` | Mean Reverter | Bets that extreme prices revert to the mean | Medium |
+| `fear_greed` | Fear and Greed | Buys drops, sells rallies | Medium-High |
+| `grid` | Grid Trader | Trades around predefined price bands | Low-Medium |
+| `random` | Random Walk | Random trades as a control baseline | Chaos |
+
+All strategies are purely algorithmic — no LLM calls, fast and deterministic.
 
 ## Uniswap Integration
 
-Uniswap is the market layer. Contenders use the Trading API for quotes, approval checks, and swap construction.
-
-Important assumptions from the source spec:
+Uniswap is the market data layer (optional). When enabled, the backend fetches real prices from the Uniswap Trading API for match ticks. When disabled or on error, prices are simulated with random walks.
 
 - Trading API base URL: `https://trade-api.gateway.uniswap.org/v1`
-- Trading API endpoints are `POST` endpoints.
-- There is no price-history endpoint in the Trading API.
-- Strategies that need history collect their own price samples over time.
-
-Primary endpoints:
-
-| Method | Path | Purpose |
-| ------ | ---- | ------- |
-| `POST` | `/quote` | Generate a swap quote |
-| `POST` | `/swap` | Build an unsigned swap transaction |
-| `POST` | `/check_approval` | Check token approval requirements |
-
-## KeeperHub Integration
-
-KeeperHub is the execution layer. Both Contenders use the same KeeperHub configuration so neither receives an execution advantage.
-
-Expected capabilities:
-
-- Submit transaction tasks.
-- Check transaction status.
-- Retry failed transactions with bounded gas boosting.
-- Preserve an execution audit trail for each trade.
-
-KeeperHub method names and schemas should be verified against the final SDK or MCP server before implementation.
+- Uses the `/quote` endpoint for price discovery
+- No on-chain execution — paper trading only
 
 ## Match Rules
 
 | Rule | Description |
-| ---- | ----------- |
-| Equal capital | Both Contenders start with the same balances |
+| --- | --- |
+| Equal capital | Both contenders start with the same USDC balance |
 | Same market | Both agents trade the same token pair |
-| Same execution | Both agents use the same KeeperHub configuration |
-| Position limits | No single trade can use more than 50% of the portfolio |
-| Minimum trade | Trades must be at least 10 USD equivalent |
-| Bankruptcy protection | Agents stop trading below a configured portfolio floor |
+| Position limits | No single trade can use more than 50% of starting capital |
+| Minimum trade | Trades must be at least $10 equivalent |
 | Transparent decisions | Every decision is broadcast before execution |
+| Timeout protection | Agents that don't respond within 8 seconds default to hold |
+| Parallel evaluation | Both agents are ticked simultaneously |
+
+## Data Persistence
+
+PostgreSQL 17 stores all durable state. `PostgresStore` extends `InMemoryStore` with a write-through pattern: all reads come from memory, all writes go to both memory and PostgreSQL.
+
+| Table | Purpose |
+| --- | --- |
+| `agents` | Agent registration, stats, ratings |
+| `matches` | Match state, contender data, PnL |
+| `trades` | Trade history per match |
+| `decisions` | Decision feed per match |
+| `leaderboard` | Cached leaderboard rankings |
+
+## API Endpoints
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `POST` | `/api/agents` | Register a new agent |
+| `GET` | `/api/agents` | List all agents |
+| `GET` | `/api/agents/:id` | Get agent state |
+| `POST` | `/api/matches` | Create a match |
+| `GET` | `/api/matches/:id` | Get match state |
+| `GET` | `/api/matches/:id/trades` | Get trade history |
+| `GET` | `/api/matches/:id/feed` | Get decision feed |
+| `POST` | `/api/matches/:id/stop` | Stop a match |
+| `GET` | `/api/strategies` | List available strategies |
+| `GET` | `/api/leaderboard` | Get leaderboard |
+| `WS` | `/ws/matches/:id` | Stream live match updates (UI) |
+| `WS` | `/ws/agent/:agentId` | Agent communication channel (internal) |
