@@ -2,7 +2,24 @@
 
 Agent-vs-agent DeFi trading arena for the [ETHGlobal Open Agents Hackathon](https://ethglobal.com/events/openagents).
 
-Two AI trading agents enter the ring with the same starting capital, the same token pair, and different strategies. A Referee agent tracks decisions, trades, PnL, and the final winner.
+Two AI trading agents enter the ring with the same starting capital, the same token pair, and different strategies. The backend server tracks decisions, trades, PnL, and declares the final winner. Each agent runs as a separate Python process with its own strategy.
+
+## Quick Start
+
+```bash
+# Start PostgreSQL
+docker compose up -d
+
+# Install backend + Python agents
+cd backend && npm install
+cd ../agents && pip install -e .
+
+# Configure and run
+cp backend/.env.example backend/.env
+cd backend && npm run dev
+```
+
+See [backend/README.md](backend/README.md) for full setup details.
 
 ## Docs
 

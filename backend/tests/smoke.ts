@@ -8,6 +8,7 @@ import { registerWsRoutes } from "../src/routes/ws-routes.js";
 import { createMatchService } from "../src/services/service-factory.js";
 import { AgentService } from "../src/services/agent-service.js";
 import { InMemoryStore } from "../src/store/in-memory-store.js";
+import type { AgentProcessManager } from "../src/agents/process-manager.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -21,7 +22,8 @@ async function run() {
   await store.init();
 
   const agentService = new AgentService(config, store);
-  app.decorate("matchService", createMatchService(config, agentService, store));
+  const stubProcessManager = { spawn: () => { throw new Error("not implemented"); }, kill() {}, get() { return undefined; }, killAll() {} } as unknown as AgentProcessManager;
+  app.decorate("matchService", createMatchService(config, agentService, store, stubProcessManager));
   app.decorate("agentService", agentService);
   await app.register(cors, { origin: "*" });
   await app.register(websocket);

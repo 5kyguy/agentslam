@@ -22,6 +22,10 @@ export interface AppConfig {
     timeoutMs: number;
     maxRetries: number;
   };
+  agents: {
+    pythonPath: string;
+    packageDir: string;
+  };
 }
 
 function envNumber(name: string, fallback: number): number {
@@ -62,6 +66,10 @@ export function getConfig(): AppConfig {
       swapperAddress: process.env.UNISWAP_SWAPPER_ADDRESS ?? "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045",
       timeoutMs: envNumber("UNISWAP_TIMEOUT_MS", 15000),
       maxRetries: envNumber("UNISWAP_MAX_RETRIES", 2),
+    },
+    agents: {
+      pythonPath: process.env.AGENTS_PYTHON_PATH ?? "python3",
+      packageDir: process.env.AGENTS_PACKAGE_DIR ?? "",
     },
   };
 }

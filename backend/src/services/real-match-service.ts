@@ -1,15 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { AppConfig } from "../config.js";
-import { AgentRuntime } from "../agents/agent-runtime.js";
 import { STRATEGIES } from "./strategy-catalog.js";
 import type { AgentService } from "./agent-service.js";
 import type { MatchService } from "./match-service.js";
 import type { Store } from "../store/store.js";
+import type { AgentProcessManager, ManagedAgent } from "../agents/process-manager.js";
 import type { UniswapClient } from "../integrations/uniswap.js";
 import type {
   ContenderState,
   DecisionEvent,
-  FeedEvent,
   MatchCreateRequest,
   MatchState,
   StrategySignal,
@@ -21,7 +20,8 @@ import type {
 interface ContenderRuntime {
   agentId: string;
   name: string;
-  runtime: AgentRuntime;
+  strategy: string;
+  managed: ManagedAgent;
   usdcBalance: number;
   ethBalance: number;
   tradeCount: number;
@@ -29,6 +29,7 @@ interface ContenderRuntime {
 
 const TICK_MS = 10_000;
 const FALLBACK_INITIAL_PRICE = 3400;
+const AGENT_CONNECT_WAIT_MS = 3_000;
 
 export class RealMatchService implements MatchService {
   private readonly runtimes = new Map<string, { a: ContenderRuntime; b: ContenderRuntime }>();
@@ -39,6 +40,7 @@ export class RealMatchService implements MatchService {
     private readonly config: AppConfig,
     private readonly agentService: AgentService,
     private readonly store: Store,
+    private readonly processManager: AgentProcessManager,
     private readonly uniswap?: UniswapClient,
   ) {}
 
@@ -57,8 +59,10 @@ export class RealMatchService implements MatchService {
     const duration = input.durationSeconds ?? 300;
     const capital = input.startingCapitalUsd ?? 1000;
     const id = `match_${randomUUID().slice(0, 8)}`;
-
     const initialPrice = this.lastKnownPrice ?? FALLBACK_INITIAL_PRICE;
+
+    const managedA = this.processManager.spawn(agentA.id, agentA.strategy);
+    const managedB = this.processManager.spawn(agentB.id, agentB.strategy);
 
     const match: MatchState = {
       id,
@@ -78,22 +82,8 @@ export class RealMatchService implements MatchService {
     };
 
     this.runtimes.set(id, {
-      a: {
-        agentId: agentA.id,
-        name: agentA.name,
-        runtime: new AgentRuntime(this.config, agentA.name, agentA.prompt),
-        usdcBalance: capital,
-        ethBalance: 0,
-        tradeCount: 0,
-      },
-      b: {
-        agentId: agentB.id,
-        name: agentB.name,
-        runtime: new AgentRuntime(this.config, agentB.name, agentB.prompt),
-        usdcBalance: capital,
-        ethBalance: 0,
-        tradeCount: 0,
-      },
+      a: { agentId: agentA.id, name: agentA.name, strategy: agentA.strategy, managed: managedA, usdcBalance: capital, ethBalance: 0, tradeCount: 0 },
+      b: { agentId: agentB.id, name: agentB.name, strategy: agentB.strategy, managed: managedB, usdcBalance: capital, ethBalance: 0, tradeCount: 0 },
     });
 
     this.priceHistories.set(id, [initialPrice]);
@@ -103,11 +93,11 @@ export class RealMatchService implements MatchService {
     this.agentService.setStatus(agentB.id, "in_match");
 
     this.store.saveMatch(match);
-
     match.status = "running";
     this.store.updateMatch(match);
     this.publishEnvelope(id, "snapshot", match);
-    this.startLoop(id);
+
+    setTimeout(() => this.startLoop(id), AGENT_CONNECT_WAIT_MS);
     return match;
   }
 
@@ -131,7 +121,7 @@ export class RealMatchService implements MatchService {
     match.status = "stopped";
     match.timeRemainingSeconds = Math.max(0, Math.floor((new Date(match.endsAt).getTime() - Date.now()) / 1000));
     this.store.updateMatch(match);
-    this.releaseAgents(id);
+    this.killAgents(id);
     this.publishEnvelope(id, "stopped", match);
     return match;
   }
@@ -184,8 +174,13 @@ export class RealMatchService implements MatchService {
     const priceHistory = this.priceHistories.get(matchId) ?? [];
     const currentPrice = priceHistory[priceHistory.length - 1] ?? FALLBACK_INITIAL_PRICE;
 
-    await this.evaluateContender(matchId, match, pair.a, "A", currentPrice, priceHistory, tickNum, totalTicks);
-    await this.evaluateContender(matchId, match, pair.b, "B", currentPrice, priceHistory, tickNum, totalTicks);
+    const [sigA, sigB] = await Promise.all([
+      this.evaluateContender(matchId, match, pair.a, "A", currentPrice, priceHistory, tickNum, totalTicks),
+      this.evaluateContender(matchId, match, pair.b, "B", currentPrice, priceHistory, tickNum, totalTicks),
+    ]);
+
+    this.applyDecision(matchId, match, pair.a, match.contenders.A, sigA, currentPrice);
+    this.applyDecision(matchId, match, pair.b, match.contenders.B, sigB, currentPrice);
 
     const newPrice = await this.fetchPrice(currentPrice, match.tokenPair);
     priceHistory.push(newPrice);
@@ -193,7 +188,6 @@ export class RealMatchService implements MatchService {
     this.lastKnownPrice = newPrice;
 
     this.recalcPortfolios(match, pair);
-
     this.store.updateMatch(match);
     this.publishEnvelope(matchId, "snapshot", match);
 
@@ -201,28 +195,10 @@ export class RealMatchService implements MatchService {
       match.status = "completed";
       this.stopLoop(matchId);
       this.store.updateMatch(match);
-      this.releaseAgents(matchId);
+      this.killAgents(matchId);
       this.publishEnvelope(matchId, "completed", match);
       this.updateStatsAndLeaderboard(match, pair);
     }
-  }
-
-  private async fetchPrice(fallbackPrice: number, tokenPair: string): Promise<number> {
-    if (!this.uniswap) {
-      return this.simulatePriceMove(fallbackPrice);
-    }
-
-    try {
-      const [base, quote] = tokenPair.split("/");
-      const result = await this.uniswap.getPrice(quote ?? "USDC", base ?? "WETH");
-      if (result.price > 0 && Number.isFinite(result.price)) {
-        return Number(result.price.toFixed(2));
-      }
-    } catch (err) {
-      console.error("[UniswapClient] price fetch failed, using fallback:", err);
-    }
-
-    return this.simulatePriceMove(fallbackPrice);
   }
 
   private async evaluateContender(
@@ -234,7 +210,7 @@ export class RealMatchService implements MatchService {
     priceHistory: number[],
     tickNumber: number,
     totalTicks: number,
-  ): Promise<void> {
+  ): Promise<StrategySignal> {
     const contenderState = match.contenders[side];
     const ctx: TickContext = {
       tokenPair: match.tokenPair,
@@ -251,10 +227,10 @@ export class RealMatchService implements MatchService {
 
     let signal: StrategySignal;
     try {
-      signal = await contender.runtime.evaluate(ctx);
+      signal = await contender.managed.connection.evaluate(ctx);
     } catch (err) {
-      console.error(`[${contender.name}] evaluate failed:`, err);
-      signal = { action: "hold", amount: 0, reasoning: "Runtime error, defaulting to hold.", confidence: 0 };
+      console.error(`[${contender.name}] remote evaluate failed:`, err);
+      signal = { action: "hold", amount: 0, reasoning: "Remote agent error, defaulting to hold.", confidence: 0 };
     }
 
     const decision: DecisionEvent = {
@@ -269,13 +245,10 @@ export class RealMatchService implements MatchService {
 
     this.store.addDecision(matchId, decision);
     this.publishEnvelope(matchId, "decision", decision);
-
-    if (signal.action !== "hold") {
-      this.applyTrade(matchId, match, contender, contenderState, signal, currentPrice);
-    }
+    return signal;
   }
 
-  private applyTrade(
+  private applyDecision(
     matchId: string,
     match: MatchState,
     contender: ContenderRuntime,
@@ -283,6 +256,8 @@ export class RealMatchService implements MatchService {
     signal: StrategySignal,
     currentPrice: number,
   ): void {
+    if (signal.action === "hold") return;
+
     const [base, quote] = match.tokenPair.split("/");
     const baseToken = base ?? "WETH";
     const quoteToken = quote ?? "USDC";
@@ -299,8 +274,7 @@ export class RealMatchService implements MatchService {
       state.trades += 1;
 
       const trade: TradeEvent = {
-        event: "trade_executed",
-        contender: contender.name,
+        event: "trade_executed", contender: contender.name,
         txHash: `0x${randomUUID().replace(/-/g, "").slice(0, 32)}`,
         sold: { token: quoteToken, amount: Number(amountUsd.toFixed(2)) },
         bought: { token: baseToken, amount: Number(ethBought.toFixed(6)) },
@@ -327,8 +301,7 @@ export class RealMatchService implements MatchService {
       state.trades += 1;
 
       const trade: TradeEvent = {
-        event: "trade_executed",
-        contender: contender.name,
+        event: "trade_executed", contender: contender.name,
         txHash: `0x${randomUUID().replace(/-/g, "").slice(0, 32)}`,
         sold: { token: baseToken, amount: Number(amountEth.toFixed(6)) },
         bought: { token: quoteToken, amount: Number((amountEth * currentPrice).toFixed(2)) },
@@ -349,14 +322,34 @@ export class RealMatchService implements MatchService {
     match.contenders.B.pnlPct = Number(((match.contenders.B.portfolioUsd / match.startingCapitalUsd - 1) * 100).toFixed(2));
   }
 
+  private async fetchPrice(fallbackPrice: number, tokenPair: string): Promise<number> {
+    if (!this.uniswap) {
+      return this.simulatePriceMove(fallbackPrice);
+    }
+
+    try {
+      const [base, quote] = tokenPair.split("/");
+      const result = await this.uniswap.getPrice(quote ?? "USDC", base ?? "WETH");
+      if (result.price > 0 && Number.isFinite(result.price)) {
+        return Number(result.price.toFixed(2));
+      }
+    } catch (err) {
+      console.error("[UniswapClient] price fetch failed, using fallback:", err);
+    }
+
+    return this.simulatePriceMove(fallbackPrice);
+  }
+
   private simulatePriceMove(currentPrice: number): number {
     const change = (Math.random() - 0.5) * 16;
     return Number((currentPrice + change).toFixed(2));
   }
 
-  private releaseAgents(matchId: string): void {
+  private killAgents(matchId: string): void {
     const pair = this.runtimes.get(matchId);
     if (pair) {
+      this.processManager.kill(pair.a.agentId);
+      this.processManager.kill(pair.b.agentId);
       this.agentService.setStatus(pair.a.agentId, "ready");
       this.agentService.setStatus(pair.b.agentId, "ready");
     }
@@ -383,7 +376,6 @@ export class RealMatchService implements MatchService {
 
     this.agentService.updateStats(pair.a.agentId, resultA, pnlA);
     this.agentService.updateStats(pair.b.agentId, resultB, pnlB);
-
     this.updateLeaderboard();
   }
 
