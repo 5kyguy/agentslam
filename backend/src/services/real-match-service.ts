@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { AppConfig } from "../config.js";
 import { AgentRuntime } from "../agents/agent-runtime.js";
-import { store } from "../store/in-memory-store.js";
 import { STRATEGIES } from "./strategy-catalog.js";
 import type { AgentService } from "./agent-service.js";
 import type { MatchService } from "./match-service.js";
+import type { Store } from "../store/store.js";
 import type { UniswapClient } from "../integrations/uniswap.js";
 import type {
   ContenderState,
@@ -38,6 +38,7 @@ export class RealMatchService implements MatchService {
   constructor(
     private readonly config: AppConfig,
     private readonly agentService: AgentService,
+    private readonly store: Store,
     private readonly uniswap?: UniswapClient,
   ) {}
 
@@ -101,35 +102,35 @@ export class RealMatchService implements MatchService {
     this.agentService.setStatus(agentA.id, "in_match");
     this.agentService.setStatus(agentB.id, "in_match");
 
-    store.matchesById.set(id, match);
-    store.tradeHistoryByMatchId.set(id, []);
-    store.decisionFeedByMatchId.set(id, []);
+    this.store.saveMatch(match);
 
     match.status = "running";
+    this.store.updateMatch(match);
     this.publishEnvelope(id, "snapshot", match);
     this.startLoop(id);
     return match;
   }
 
   getMatch(id: string): MatchState | undefined {
-    return store.matchesById.get(id);
+    return this.store.getMatch(id);
   }
 
   getTrades(id: string): unknown[] {
-    return store.tradeHistoryByMatchId.get(id) ?? [];
+    return this.store.getTrades(id);
   }
 
   getFeed(id: string): unknown[] {
-    return store.decisionFeedByMatchId.get(id) ?? [];
+    return this.store.getFeed(id);
   }
 
   stopMatch(id: string): MatchState | undefined {
-    const match = store.matchesById.get(id);
+    const match = this.store.getMatch(id);
     if (!match) return undefined;
 
     this.stopLoop(id);
     match.status = "stopped";
     match.timeRemainingSeconds = Math.max(0, Math.floor((new Date(match.endsAt).getTime() - Date.now()) / 1000));
+    this.store.updateMatch(match);
     this.releaseAgents(id);
     this.publishEnvelope(id, "stopped", match);
     return match;
@@ -140,7 +141,7 @@ export class RealMatchService implements MatchService {
   }
 
   getLeaderboard() {
-    return store.leaderboard;
+    return this.store.getLeaderboard();
   }
 
   onWsConnect(matchId: string, send: (payload: unknown) => void): () => void {
@@ -148,27 +149,27 @@ export class RealMatchService implements MatchService {
     if (match) {
       send({ event: "snapshot", match_id: matchId, timestamp: new Date().toISOString(), payload: match });
     }
-    return store.subscribe(matchId, send);
+    return this.store.subscribe(matchId, send);
   }
 
   private startLoop(matchId: string): void {
     this.stopLoop(matchId);
     const interval = setInterval(() => void this.tick(matchId), TICK_MS);
-    store.intervalsByMatchId.set(matchId, interval);
+    this.store.setInterval(matchId, interval);
   }
 
   private stopLoop(matchId: string): void {
-    const current = store.intervalsByMatchId.get(matchId);
+    const current = this.store.getInterval(matchId);
     if (current) {
       clearInterval(current);
-      store.intervalsByMatchId.delete(matchId);
+      this.store.deleteInterval(matchId);
     }
   }
 
   private lastKnownPrice: number | null = null;
 
   private async tick(matchId: string): Promise<void> {
-    const match = store.matchesById.get(matchId);
+    const match = this.store.getMatch(matchId);
     const pair = this.runtimes.get(matchId);
     if (!match || match.status !== "running" || !pair) return;
 
@@ -193,11 +194,13 @@ export class RealMatchService implements MatchService {
 
     this.recalcPortfolios(match, pair);
 
+    this.store.updateMatch(match);
     this.publishEnvelope(matchId, "snapshot", match);
 
     if (match.timeRemainingSeconds <= 0) {
       match.status = "completed";
       this.stopLoop(matchId);
+      this.store.updateMatch(match);
       this.releaseAgents(matchId);
       this.publishEnvelope(matchId, "completed", match);
       this.updateStatsAndLeaderboard(match, pair);
@@ -264,9 +267,7 @@ export class RealMatchService implements MatchService {
       timestamp: new Date().toISOString(),
     };
 
-    const feed = store.decisionFeedByMatchId.get(matchId) ?? [];
-    feed.push(decision);
-    store.decisionFeedByMatchId.set(matchId, feed);
+    this.store.addDecision(matchId, decision);
     this.publishEnvelope(matchId, "decision", decision);
 
     if (signal.action !== "hold") {
@@ -307,9 +308,7 @@ export class RealMatchService implements MatchService {
         timestamp: new Date().toISOString(),
       };
 
-      const trades = store.tradeHistoryByMatchId.get(matchId) ?? [];
-      trades.push(trade);
-      store.tradeHistoryByMatchId.set(matchId, trades);
+      this.store.addTrade(matchId, trade);
       this.publishEnvelope(matchId, "trade_executed", trade);
     }
 
@@ -337,9 +336,7 @@ export class RealMatchService implements MatchService {
         timestamp: new Date().toISOString(),
       };
 
-      const trades = store.tradeHistoryByMatchId.get(matchId) ?? [];
-      trades.push(trade);
-      store.tradeHistoryByMatchId.set(matchId, trades);
+      this.store.addTrade(matchId, trade);
       this.publishEnvelope(matchId, "trade_executed", trade);
     }
   }
@@ -395,7 +392,7 @@ export class RealMatchService implements MatchService {
       .filter((a) => a.stats.matchesPlayed > 0)
       .sort((a, b) => b.stats.rating - a.stats.rating);
 
-    store.leaderboard = agents.map((agent, index) => ({
+    this.store.setLeaderboard(agents.map((agent, index) => ({
       rank: index + 1,
       strategy: agent.name,
       rating: agent.stats.rating,
@@ -404,11 +401,11 @@ export class RealMatchService implements MatchService {
       draws: agent.stats.draws,
       avgPnlPct: agent.stats.avgPnlPct,
       matchesPlayed: agent.stats.matchesPlayed,
-    }));
+    })));
   }
 
   private publishEnvelope(matchId: string, eventType: WsEnvelope["event"], payload: unknown): void {
     const envelope: WsEnvelope = { event: eventType, match_id: matchId, timestamp: new Date().toISOString(), payload };
-    store.publish(matchId, envelope);
+    this.store.publish(matchId, envelope);
   }
 }

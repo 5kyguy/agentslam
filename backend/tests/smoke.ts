@@ -1,11 +1,35 @@
-import { createApp } from "../src/app.js";
+import Fastify from "fastify";
+import cors from "@fastify/cors";
+import websocket from "@fastify/websocket";
+import { getConfig } from "../src/config.js";
+import { registerHttpRoutes } from "../src/routes/http-routes.js";
+import { registerAgentRoutes } from "../src/routes/agent-routes.js";
+import { registerWsRoutes } from "../src/routes/ws-routes.js";
+import { createMatchService } from "../src/services/service-factory.js";
+import { AgentService } from "../src/services/agent-service.js";
+import { InMemoryStore } from "../src/store/in-memory-store.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function run() {
-  const { app, config } = await createApp();
+  const config = getConfig();
+  const app = Fastify({ logger: false });
+
+  const store = new InMemoryStore();
+  await store.init();
+
+  const agentService = new AgentService(config, store);
+  app.decorate("matchService", createMatchService(config, agentService, store));
+  app.decorate("agentService", agentService);
+  await app.register(cors, { origin: "*" });
+  await app.register(websocket);
+
+  await registerAgentRoutes(app);
+  await registerHttpRoutes(app);
+  await registerWsRoutes(app);
+
   const address = await app.listen({ host: "127.0.0.1", port: 0 });
   const base = new URL(address);
   const httpBase = `${base.protocol}//${base.host}`;
@@ -40,8 +64,8 @@ async function run() {
       agentB: agentB.id,
       tokenPair: "WETH/USDC",
       startingCapitalUsd: 1000,
-      durationSeconds: 60
-    })
+      durationSeconds: 60,
+    }),
   }).then((r) => r.json());
 
   if (!created?.id) {

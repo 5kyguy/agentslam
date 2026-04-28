@@ -1,11 +1,12 @@
 import type { AppConfig } from "../config.js";
 import type { MatchService } from "./match-service.js";
 import type { AgentService } from "./agent-service.js";
+import type { Store } from "../store/store.js";
 import { DummyMatchService } from "./dummy-match-service.js";
 import { RealMatchService } from "./real-match-service.js";
 import { UniswapClient } from "../integrations/uniswap.js";
 
-export function createMatchService(config: AppConfig, agentService: AgentService): MatchService {
+export function createMatchService(config: AppConfig, agentService: AgentService, store: Store): MatchService {
   if (config.backendMode === "real") {
     const uniswap = config.uniswap.enabled && config.uniswap.apiKey
       ? new UniswapClient({
@@ -18,7 +19,7 @@ export function createMatchService(config: AppConfig, agentService: AgentService
         })
       : undefined;
 
-    return new RealMatchService(config, agentService, uniswap);
+    return new RealMatchService(config, agentService, store, uniswap);
   }
-  return new DummyMatchService(config);
+  return new DummyMatchService(config, store);
 }

@@ -1,13 +1,16 @@
 import type { AppConfig } from "../config.js";
+import type { Store } from "../store/store.js";
 import { AgentRegistry } from "../agents/agent-registry.js";
 import { compileStrategyPrompt, isValidStrategyId } from "../agents/strategies/strategy-compiler.js";
 import { STRATEGIES } from "./strategy-catalog.js";
 import type { AgentCreateRequest, AgentState } from "../types.js";
 
 export class AgentService {
-  private readonly registry = new AgentRegistry();
+  private readonly registry: AgentRegistry;
 
-  constructor(private readonly config: AppConfig) {}
+  constructor(private readonly config: AppConfig, store: Store) {
+    this.registry = new AgentRegistry(store);
+  }
 
   create(input: AgentCreateRequest): AgentState {
     if (!isValidStrategyId(input.strategy)) {

@@ -1,25 +1,43 @@
 # Chain Slam Dummy Backend
 
-Placeholder backend server for frontend integration while real referee/agent backends are built incrementally.
+Fastify server powering the agent-vs-agent trading arena. PostgreSQL for persistence, real Uniswap price feeds optional.
 
 ## Quick Start
 
 ```bash
+# 1. Start the database
+docker compose up -d
+
+# 2. Install dependencies
 npm install
+
+# 3. Run the server
 npm run dev
 ```
 
 Server default: `http://localhost:8787`
 
+## Prerequisites
+
+- **Node.js 22+**
+- **Docker** (for PostgreSQL)
+- **Uniswap API key** (optional — set `UNISWAP_ENABLED=true` and `UNISWAP_API_KEY=...` for real price feeds)
+
 ## Environment
 
-Copy `.env.example` and adjust as needed:
+Copy `.env.example` to `.env` and adjust:
 
-- `BACKEND_MODE=dummy|real` (`real` is a placeholder and intentionally not implemented)
+- `DATABASE_URL` — PostgreSQL connection string (default matches `docker-compose.yml`)
+- `BACKEND_MODE=dummy|real` — `dummy` uses simulated data, `real` uses LLM-driven agents
 - `SIM_SEED` for deterministic simulated behavior
 - `SIM_TICK_MS` simulation tick interval in milliseconds
-- `SIM_ERROR_RATE` reserved for future fault injection
 - `CORS_ORIGIN` frontend origin allow-list (or `*` for local development)
+
+## Database
+
+PostgreSQL 17 runs in Docker via `docker compose up -d`. Data persists in a named Docker volume (`pgdata`).
+
+The schema is created automatically on first startup. All state (agents, matches, trades, decisions, leaderboard) survives restarts.
 
 ## API Contracts
 

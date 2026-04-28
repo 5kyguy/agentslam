@@ -6,6 +6,7 @@ export interface AppConfig {
   simSeed: number;
   simTickMs: number;
   simErrorRate: number;
+  databaseUrl: string;
   llm: {
     provider: string;
     apiKey: string;
@@ -46,6 +47,7 @@ export function getConfig(): AppConfig {
     simSeed: envNumber("SIM_SEED", 42),
     simTickMs: envNumber("SIM_TICK_MS", 2000),
     simErrorRate: envNumber("SIM_ERROR_RATE", 0),
+    databaseUrl: process.env.DATABASE_URL ?? "postgresql://agentslam:agentslam@localhost:5432/agentslam",
     llm: {
       provider: llmProvider,
       apiKey: process.env.LLM_API_KEY ?? "",

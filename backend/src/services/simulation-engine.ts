@@ -1,5 +1,5 @@
 import type { AppConfig } from "../config.js";
-import { store } from "../store/in-memory-store.js";
+import type { Store } from "../store/store.js";
 import type { DecisionAction, DecisionEvent, FeedEvent, MatchCreateRequest, MatchState, TradeEvent, WsEnvelope } from "../types.js";
 import { SeededRandom } from "../utils/random.js";
 
@@ -9,14 +9,14 @@ const REASONS = [
   "Momentum faded; reducing risk exposure.",
   "Volatility elevated; holding for clearer signal.",
   "Range breakout detected on recent candles.",
-  "Mean-reversion trigger fired near intraday extremes."
+  "Mean-reversion trigger fired near intraday extremes.",
 ] as const;
 
 export class SimulationEngine {
   private readonly random: SeededRandom;
   private readonly tickMs: number;
 
-  constructor(private readonly config: AppConfig) {
+  constructor(private readonly config: AppConfig, private readonly store: Store) {
     this.random = new SeededRandom(config.simSeed);
     this.tickMs = config.simTickMs;
   }
@@ -40,28 +40,26 @@ export class SimulationEngine {
       ethPrice: 3400,
       contenders: {
         A: { name: input.agentA, pnlPct: 0, portfolioUsd: capital, trades: 0 },
-        B: { name: input.agentB, pnlPct: 0, portfolioUsd: capital, trades: 0 }
-      }
+        B: { name: input.agentB, pnlPct: 0, portfolioUsd: capital, trades: 0 },
+      },
     };
 
-    store.matchesById.set(id, match);
-    store.tradeHistoryByMatchId.set(id, []);
-    store.decisionFeedByMatchId.set(id, []);
+    this.store.saveMatch(match);
     this.publishEnvelope(id, "snapshot", match);
     match.status = "running";
+    this.store.updateMatch(match);
     this.startLoop(id);
     this.publishEnvelope(id, "snapshot", match);
     return match;
   }
 
   stopMatch(id: string): MatchState | undefined {
-    const match = store.matchesById.get(id);
-    if (!match) {
-      return undefined;
-    }
+    const match = this.store.getMatch(id);
+    if (!match) return undefined;
     this.stopLoop(id);
     match.status = "stopped";
     match.timeRemainingSeconds = Math.max(0, Math.floor((new Date(match.endsAt).getTime() - Date.now()) / 1000));
+    this.store.updateMatch(match);
     this.publishEnvelope(id, "stopped", match);
     return match;
   }
@@ -69,22 +67,20 @@ export class SimulationEngine {
   private startLoop(matchId: string): void {
     this.stopLoop(matchId);
     const interval = setInterval(() => this.tick(matchId), this.tickMs);
-    store.intervalsByMatchId.set(matchId, interval);
+    this.store.setInterval(matchId, interval);
   }
 
   private stopLoop(matchId: string): void {
-    const current = store.intervalsByMatchId.get(matchId);
+    const current = this.store.getInterval(matchId);
     if (current) {
       clearInterval(current);
-      store.intervalsByMatchId.delete(matchId);
+      this.store.deleteInterval(matchId);
     }
   }
 
   private tick(matchId: string): void {
-    const match = store.matchesById.get(matchId);
-    if (!match || match.status !== "running") {
-      return;
-    }
+    const match = this.store.getMatch(matchId);
+    if (!match || match.status !== "running") return;
 
     const now = Date.now();
     const endsAt = new Date(match.endsAt).getTime();
@@ -95,23 +91,21 @@ export class SimulationEngine {
 
     for (const event of events) {
       if (event.event === "trade_executed") {
-        const trades = store.tradeHistoryByMatchId.get(matchId) ?? [];
-        trades.push(event);
-        store.tradeHistoryByMatchId.set(matchId, trades);
+        this.store.addTrade(matchId, event);
         this.publishEnvelope(matchId, "trade_executed", event);
       } else {
-        const feed = store.decisionFeedByMatchId.get(matchId) ?? [];
-        feed.push(event);
-        store.decisionFeedByMatchId.set(matchId, feed);
+        this.store.addDecision(matchId, event);
         this.publishEnvelope(matchId, "decision", event);
       }
     }
 
+    this.store.updateMatch(match);
     this.publishEnvelope(matchId, "snapshot", match);
 
     if (match.timeRemainingSeconds <= 0) {
       match.status = "completed";
       this.stopLoop(matchId);
+      this.store.updateMatch(match);
       this.publishEnvelope(matchId, "completed", match);
       this.updateLeaderboard(match);
     }
@@ -145,7 +139,7 @@ export class SimulationEngine {
         amount,
         reasoning: this.random.pick(REASONS),
         confidence: Number(this.random.nextInRange(0.5, 0.95).toFixed(2)),
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       };
       events.push(decision);
 
@@ -162,7 +156,7 @@ export class SimulationEngine {
               ? { token: base ?? "WETH", amount: Number((amount / match.ethPrice).toFixed(6)) }
               : { token: quote ?? "USDC", amount },
           gasUsd: Number(this.random.nextInRange(0.8, 2.3).toFixed(2)),
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         };
         events.push(trade);
       }
@@ -171,23 +165,18 @@ export class SimulationEngine {
   }
 
   private publishEnvelope(matchId: string, eventType: WsEnvelope["event"], payload: unknown): void {
-    const envelope: WsEnvelope = {
-      event: eventType,
-      match_id: matchId,
-      timestamp: new Date().toISOString(),
-      payload
-    };
-    store.publish(matchId, envelope);
+    const envelope: WsEnvelope = { event: eventType, match_id: matchId, timestamp: new Date().toISOString(), payload };
+    this.store.publish(matchId, envelope);
   }
 
   private updateLeaderboard(match: MatchState): void {
     const entries = [match.contenders.A, match.contenders.B].map((contender) => ({
       strategy: contender.name,
-      pnl: contender.pnlPct
+      pnl: contender.pnlPct,
     }));
     entries.sort((a, b) => b.pnl - a.pnl);
 
-    store.leaderboard = entries.map((entry, index) => ({
+    this.store.setLeaderboard(entries.map((entry, index) => ({
       rank: index + 1,
       strategy: entry.strategy,
       rating: 1200 + Math.round(entry.pnl * 8),
@@ -195,7 +184,7 @@ export class SimulationEngine {
       losses: index === 0 ? 0 : 1,
       draws: 0,
       avgPnlPct: Number(entry.pnl.toFixed(2)),
-      matchesPlayed: 1
-    }));
+      matchesPlayed: 1,
+    })));
   }
 }

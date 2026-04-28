@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AgentCreateRequest, AgentState, AgentStats } from "../types.js";
+import type { Store } from "../store/store.js";
 
 const DEFAULT_STATS: AgentStats = {
   rating: 1200,
@@ -11,7 +12,7 @@ const DEFAULT_STATS: AgentStats = {
 };
 
 export class AgentRegistry {
-  private readonly agents = new Map<string, AgentState>();
+  constructor(private readonly store: Store) {}
 
   create(input: AgentCreateRequest, compiledPrompt: string): AgentState {
     const id = `agent_${randomUUID().slice(0, 8)}`;
@@ -26,47 +27,27 @@ export class AgentRegistry {
       createdAt: new Date().toISOString(),
       stats: { ...DEFAULT_STATS },
     };
-    this.agents.set(id, agent);
+    this.store.saveAgent(agent);
     return agent;
   }
 
   get(id: string): AgentState | undefined {
-    return this.agents.get(id);
+    return this.store.getAgent(id);
   }
 
   list(): AgentState[] {
-    return [...this.agents.values()];
+    return this.store.listAgents();
   }
 
   delete(id: string): boolean {
-    const agent = this.agents.get(id);
-    if (!agent || agent.status === "in_match") {
-      return false;
-    }
-    agent.status = "destroyed";
-    this.agents.delete(id);
-    return true;
+    return this.store.deleteAgent(id);
   }
 
   setStatus(id: string, status: AgentState["status"]): void {
-    const agent = this.agents.get(id);
-    if (agent) {
-      agent.status = status;
-    }
+    this.store.updateAgentStatus(id, status);
   }
 
   updateStats(id: string, result: "win" | "loss" | "draw", pnlPct: number): void {
-    const agent = this.agents.get(id);
-    if (!agent) {
-      return;
-    }
-    const s = agent.stats;
-    s.matchesPlayed += 1;
-    if (result === "win") s.wins += 1;
-    else if (result === "loss") s.losses += 1;
-    else s.draws += 1;
-
-    const totalPnl = s.avgPnlPct * (s.matchesPlayed - 1) + pnlPct;
-    s.avgPnlPct = Number(totalPnl.toFixed(2));
+    this.store.updateAgentStats(id, result, pnlPct);
   }
 }
