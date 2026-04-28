@@ -78,6 +78,21 @@ Copy `.env.example` to `.env` and adjust:
 
 **Supported pair symbols** (mainnet addresses in code): `WETH`, `USDC`, `USDT`, `DAI`, `WBTC`, `UNI`, `LINK`, plus raw `0x…` addresses.
 
+### KeeperHub (Direct Execution — optional)
+
+When **`KEEPERHUB_API_KEY`** is set and **`UNISWAP_SWAP_MODE=live`**, each trade with a successful **`POST /swap`** payload will also be submitted to KeeperHub **`POST /execute/contract-call`**. The backend decodes Universal Router `execute(bytes,bytes[],uint256)` / `execute(bytes,bytes[])` calldata with `viem`, forwards it as a structured contract call (same intent as the unsigned tx), and records **`keeperhubSubmissionId`**, status, retries, explorer link, and receipts on `trade_executed`. A background poller calls **`GET /execute/{executionId}/status`** until the execution completes or fails, then persists **`onChainTxHash`** / **`txHash`** when KeeperHub reports a mined transaction.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `KEEPERHUB_API_KEY` | (empty) | Organization API key (`X-API-Key`). If unset, swaps are not sent to KeeperHub (match loop continues unchanged). |
+| `KEEPERHUB_BASE_URL` | `https://app.keeperhub.com/api` | KeeperHub API root (paths append `/execute/...`). |
+| `KEEPERHUB_TIMEOUT_MS` | `30000` | HTTP timeout for submit/status |
+| `KEEPERHUB_MAX_RETRIES` | `3` | Client retries on 429 / 5xx for submit/status |
+| `KEEPERHUB_POLL_INTERVAL_MS` | `5000` | Background poll cadence for non-terminal executions |
+| `KEEPERHUB_MAX_POLL_ATTEMPTS` | `120` | Max completed status polls while execution stays non-terminal |
+
+If submission fails (decode error, HTTP error, wallet not configured on KeeperHub, etc.), the trade row still exists and **`lastExecutionError`** is set so the arena keeps running.
+
 ## How Match Execution Works
 
 The match service always spawns Python agent processes:
@@ -118,7 +133,7 @@ The schema is created automatically on first startup via `PostgresStore.init()`.
 | --- | --- |
 | `agents` | Registered agents with stats |
 | `matches` | Match state and contender data |
-| `trades` | Trade history per match |
+| `trades` | Trade history per match (`trade_record_id`, `execution_metadata` JSONB for Uniswap/KeeperHub audit fields) |
 | `decisions` | Decision feed per match |
 | `leaderboard` | Cached leaderboard rankings |
 
@@ -161,7 +176,7 @@ Notes:
 
 - `snapshot` payload is the full current match state.
 - `decision` payload represents contender intent and reasoning.
-- `trade_executed` payload represents simulated execution result. When Uniswap-sized fills are used, optional fields include `executionMode` (`uniswap_quote_mock` | `uniswap_live_swap` | `paper`), `quoteRouting`, `mockSwapBuild`, `unsignedSwap` (from real `POST /swap` when `UNISWAP_SWAP_MODE=live`), `swapRequestId`, `swapError`, `approvalRequestId`.
+- `trade_executed` payload represents simulated execution result. When Uniswap-sized fills are used, optional fields include `tradeRecordId`, `executionMode` (`uniswap_quote_mock` | `uniswap_live_swap` | `paper`), `quoteRouting`, `mockSwapBuild`, `unsignedSwap` (from real `POST /swap` when `UNISWAP_SWAP_MODE=live`), `swapRequestId`, `swapError`, `approvalRequestId`. With **`KEEPERHUB_API_KEY`** and live swap, optional **`keeperhubSubmissionId`**, **`keeperhubStatus`**, **`keeperhubRetryCount`**, **`onChainTxHash`**, **`executionReceipt`**, **`lastExecutionError`**, **`keeperhubTransactionLink`** appear as submission and polling progress.
 - `completed` and `stopped` are terminal lifecycle events.
 
 Decision event payload:

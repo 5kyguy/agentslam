@@ -29,6 +29,17 @@ export interface AppConfig {
     pythonPath: string;
     packageDir: string;
   };
+  /** KeeperHub Direct Execution — optional; routes unsigned Uniswap swaps via `/execute/contract-call`. */
+  keeperhub: {
+    apiKey: string;
+    baseUrl: string;
+    timeoutMs: number;
+    maxRetries: number;
+    /** Background poll interval for execution status (ms). */
+    pollIntervalMs: number;
+    /** Max status polls per execution before giving up. */
+    maxPollAttempts: number;
+  };
 }
 
 function envNumber(name: string, fallback: number): number {
@@ -87,6 +98,14 @@ export function getConfig(): AppConfig {
     agents: {
       pythonPath: process.env.AGENTS_PYTHON_PATH ?? "python3",
       packageDir: process.env.AGENTS_PACKAGE_DIR ?? "",
+    },
+    keeperhub: {
+      apiKey: process.env.KEEPERHUB_API_KEY ?? "",
+      baseUrl: process.env.KEEPERHUB_BASE_URL ?? "https://app.keeperhub.com/api",
+      timeoutMs: envNumber("KEEPERHUB_TIMEOUT_MS", 30_000),
+      maxRetries: envNumber("KEEPERHUB_MAX_RETRIES", 3),
+      pollIntervalMs: envNumber("KEEPERHUB_POLL_INTERVAL_MS", 5000),
+      maxPollAttempts: envNumber("KEEPERHUB_MAX_POLL_ATTEMPTS", 120),
     },
   };
 }

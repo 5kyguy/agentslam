@@ -106,6 +106,23 @@ export interface TradeEvent {
   swapRequestId?: string;
   swapError?: string;
   approvalRequestId?: string;
+
+  /** Stable id for correlating async KeeperHub execution updates (persisted in Postgres). */
+  tradeRecordId?: string;
+
+  /** KeeperHub Direct Execution id (`POST /execute/contract-call`). */
+  keeperhubSubmissionId?: string;
+  /** Normalized KeeperHub execution status (`pending` | `running` | `completed` | `failed`, etc.). */
+  keeperhubStatus?: string;
+  /** HTTP retries consumed by the KeeperHub client for submit/status calls (not poll attempts). */
+  keeperhubRetryCount?: number;
+  /** On-chain transaction hash when execution finalizes (authoritative over placeholder `txHash` when set). */
+  onChainTxHash?: string;
+  /** Full status payload / `result` from KeeperHub for audit. */
+  executionReceipt?: Record<string, unknown>;
+  lastExecutionError?: string;
+  /** Block explorer link from KeeperHub status when available. */
+  keeperhubTransactionLink?: string;
 }
 
 export type FeedEvent = DecisionEvent | TradeEvent;

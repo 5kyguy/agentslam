@@ -10,6 +10,8 @@ import {
   type UniswapClient,
   type UniswapQuoteResponse,
 } from "../integrations/uniswap.js";
+import type { KeeperHubClient } from "../integrations/keeperhub.js";
+import { KeeperHubExecutionPoller } from "./keeperhub-execution-poller.js";
 import { fromBaseUnits, tokenDecimals, toBaseUnits } from "../integrations/tokens.js";
 import type {
   ContenderState,
@@ -47,6 +49,8 @@ export class RealMatchService implements MatchService {
     private readonly store: Store,
     private readonly processManager: AgentProcessManager,
     private readonly uniswap: UniswapClient,
+    private readonly keeperHub?: KeeperHubClient,
+    private readonly keeperHubPoller?: KeeperHubExecutionPoller,
   ) {}
 
   createMatch(input: MatchCreateRequest): MatchState {
@@ -367,6 +371,7 @@ export class RealMatchService implements MatchService {
         state.trades += 1;
 
         const trade: TradeEvent = {
+          tradeRecordId: randomUUID(),
           event: "trade_executed",
           contender: contender.name,
           txHash: `0x${randomUUID().replace(/-/g, "").slice(0, 32)}`,
@@ -385,6 +390,7 @@ export class RealMatchService implements MatchService {
 
         this.store.addTrade(matchId, trade);
         this.publishEnvelope(matchId, "trade_executed", trade);
+        this.enqueueKeeperHubSubmission(matchId, trade);
         return true;
       }
 
@@ -430,6 +436,7 @@ export class RealMatchService implements MatchService {
         state.trades += 1;
 
         const trade: TradeEvent = {
+          tradeRecordId: randomUUID(),
           event: "trade_executed",
           contender: contender.name,
           txHash: `0x${randomUUID().replace(/-/g, "").slice(0, 32)}`,
@@ -448,6 +455,7 @@ export class RealMatchService implements MatchService {
 
         this.store.addTrade(matchId, trade);
         this.publishEnvelope(matchId, "trade_executed", trade);
+        this.enqueueKeeperHubSubmission(matchId, trade);
         return true;
       }
 
@@ -480,6 +488,7 @@ export class RealMatchService implements MatchService {
       state.trades += 1;
 
       const trade: TradeEvent = {
+        tradeRecordId: randomUUID(),
         event: "trade_executed", contender: contender.name,
         txHash: `0x${randomUUID().replace(/-/g, "").slice(0, 32)}`,
         sold: { token: quoteToken, amount: Number(amountUsd.toFixed(2)) },
@@ -508,6 +517,7 @@ export class RealMatchService implements MatchService {
       state.trades += 1;
 
       const trade: TradeEvent = {
+        tradeRecordId: randomUUID(),
         event: "trade_executed", contender: contender.name,
         txHash: `0x${randomUUID().replace(/-/g, "").slice(0, 32)}`,
         sold: { token: baseToken, amount: Number(amountEth.toFixed(6)) },
@@ -593,6 +603,65 @@ export class RealMatchService implements MatchService {
       avgPnlPct: agent.stats.avgPnlPct,
       matchesPlayed: agent.stats.matchesPlayed,
     })));
+  }
+
+  private enqueueKeeperHubSubmission(matchId: string, trade: TradeEvent): void {
+    if (!this.keeperHub || !this.keeperHubPoller) return;
+    if (this.config.uniswap.swapMode !== "live") return;
+    const recordId = trade.tradeRecordId;
+    if (!recordId) return;
+    if (!trade.unsignedSwap || trade.swapError) return;
+
+    void this.processKeeperHubSubmission(matchId, recordId, trade);
+  }
+
+  private async processKeeperHubSubmission(
+    matchId: string,
+    tradeRecordId: string,
+    trade: TradeEvent,
+  ): Promise<void> {
+    const kh = this.keeperHub;
+    const poller = this.keeperHubPoller;
+    if (!kh || !poller) return;
+
+    const submission = await kh.submitUnsignedSwap(trade.unsignedSwap!, this.config.uniswap.chainId);
+
+    if (!submission.ok) {
+      this.store.updateTradeExecution(matchId, tradeRecordId, {
+        lastExecutionError: submission.error,
+        keeperhubRetryCount: submission.httpRetries,
+      });
+      this.publishUpdatedTrade(matchId, tradeRecordId);
+      return;
+    }
+
+    const raw = submission.result.raw;
+    let execReceipt: Record<string, unknown> | undefined;
+    if (raw && typeof raw === "object") {
+      const o = raw as Record<string, unknown>;
+      execReceipt =
+        "data" in o && o.data !== undefined && typeof o.data === "object" && o.data !== null
+          ? (o.data as Record<string, unknown>)
+          : { ...o };
+    }
+
+    this.store.updateTradeExecution(matchId, tradeRecordId, {
+      keeperhubSubmissionId: submission.result.executionId,
+      keeperhubStatus: submission.result.status,
+      keeperhubRetryCount: submission.httpRetries,
+      executionReceipt: execReceipt ?? { raw },
+    });
+
+    poller.register(matchId, tradeRecordId, submission.result.executionId);
+    this.publishUpdatedTrade(matchId, tradeRecordId);
+  }
+
+  private publishUpdatedTrade(matchId: string, tradeRecordId: string): void {
+    const trades = this.store.getTrades(matchId);
+    const t = trades.find((x) => x.tradeRecordId === tradeRecordId);
+    if (t) {
+      this.publishEnvelope(matchId, "trade_executed", t);
+    }
   }
 
   private publishEnvelope(matchId: string, eventType: WsEnvelope["event"], payload: unknown): void {
