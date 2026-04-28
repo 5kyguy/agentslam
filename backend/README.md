@@ -69,9 +69,12 @@ Copy `.env.example` to `.env` and adjust:
 | `UNISWAP_SWAPPER_ADDRESS` | Vitalik placeholder | Wallet address used as `swapper` in `/quote` and `walletAddress` in `/check_approval` (no funds needed for quote-only use) |
 | `UNISWAP_TIMEOUT_MS` | `15000` | Request timeout |
 | `UNISWAP_MAX_RETRIES` | `2` | Max retry count on failure |
-| `UNISWAP_SWAP_MODE` | `mock` | `mock` = never call `POST /swap` (unsigned tx / calldata are not requested). Set to `live` when you wire signing + broadcast; until then the backend skips `POST /swap` and logs a one-time warning. |
+| `UNISWAP_SWAP_MODE` | `mock` | `mock` = no `POST /swap`. **`live`** = real `POST /swap` after each trade quote; response unsigned tx is surfaced on `trade_executed` as `unsignedSwap` (you sign/broadcast — backend still keeps paper balances unless you add RPC broadcast). |
+| `UNISWAP_PERMIT2_DISABLED` | `false` | Send `x-permit2-disabled: true` on quote/check/swap (proxy ERC-20 approve flow). Use **`true`** when running `live` swap without an EIP-712 signer in-process. |
+| `UNISWAP_UNIVERSAL_ROUTER_VERSION` | `2.0` | Must stay consistent across quote and swap (Uniswap API). |
+| `UNISWAP_PERMIT_SIGNATURE` | (empty) | Hex Permit2 signature when quotes return `permitData` and Permit2 is enabled. |
 
-**Endpoints used:** `POST /quote` (price ticks and trade sizing), `POST /check_approval`. **`POST /swap` is not called** in `mock` mode so you can demo real routing without spending gas.
+**Endpoints used:** `POST /quote`, `POST /check_approval`, and **`POST /swap`** when `UNISWAP_SWAP_MODE=live`.
 
 **Supported pair symbols** (mainnet addresses in code): `WETH`, `USDC`, `USDT`, `DAI`, `WBTC`, `UNI`, `LINK`, plus raw `0x…` addresses.
 
@@ -158,7 +161,7 @@ Notes:
 
 - `snapshot` payload is the full current match state.
 - `decision` payload represents contender intent and reasoning.
-- `trade_executed` payload represents simulated execution result. When Uniswap-sized fills are used, optional fields include `executionMode` (`uniswap_quote_mock` vs `paper`), `quoteRouting`, `mockSwapBuild`, `approvalRequestId`.
+- `trade_executed` payload represents simulated execution result. When Uniswap-sized fills are used, optional fields include `executionMode` (`uniswap_quote_mock` | `uniswap_live_swap` | `paper`), `quoteRouting`, `mockSwapBuild`, `unsignedSwap` (from real `POST /swap` when `UNISWAP_SWAP_MODE=live`), `swapRequestId`, `swapError`, `approvalRequestId`.
 - `completed` and `stopped` are terminal lifecycle events.
 
 Decision event payload:
@@ -186,9 +189,10 @@ Trade event payload:
   "bought": { "token": "WETH", "amount": 0.044 },
   "gasUsd": 1.23,
   "timestamp": "2026-04-27T07:00:00.000Z",
-  "executionMode": "uniswap_quote_mock",
+  "executionMode": "uniswap_live_swap",
   "quoteRouting": "CLASSIC",
-  "mockSwapBuild": { "mode": "mock", "chainId": 1, "note": "POST /swap was not executed." },
+  "unsignedSwap": { "to": "0x66a9…", "data": "0x3593…", "value": "0x0", "chainId": 1, "gasLimit": "179302" },
+  "swapRequestId": "dfc1bd88-c741-4cdb-b118-0dddb690bfef",
   "approvalRequestId": "req_…"
 }
 ```

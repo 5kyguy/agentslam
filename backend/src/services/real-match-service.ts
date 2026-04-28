@@ -5,7 +5,11 @@ import type { AgentService } from "./agent-service.js";
 import type { MatchService } from "./match-service.js";
 import type { Store } from "../store/store.js";
 import type { AgentProcessManager, ManagedAgent } from "../agents/process-manager.js";
-import type { UniswapClient } from "../integrations/uniswap.js";
+import {
+  gasUsdFromQuoteResponse,
+  type UniswapClient,
+  type UniswapQuoteResponse,
+} from "../integrations/uniswap.js";
 import { fromBaseUnits, tokenDecimals, toBaseUnits } from "../integrations/tokens.js";
 import type {
   ContenderState,
@@ -36,7 +40,6 @@ export class RealMatchService implements MatchService {
   private readonly runtimes = new Map<string, { a: ContenderRuntime; b: ContenderRuntime }>();
   private readonly priceHistories = new Map<string, number[]>();
   private readonly tickNumbers = new Map<string, number>();
-  private warnedLiveSwapMode = false;
 
   constructor(
     private readonly config: AppConfig,
@@ -260,13 +263,6 @@ export class RealMatchService implements MatchService {
   ): Promise<void> {
     if (signal.action === "hold") return;
 
-    if (this.config.uniswap.swapMode === "live" && !this.warnedLiveSwapMode) {
-      console.warn(
-        "[RealMatchService] UNISWAP_SWAP_MODE=live: POST /swap is not wired yet; trades still use real quotes + mock swap metadata only (no on-chain swap).",
-      );
-      this.warnedLiveSwapMode = true;
-    }
-
     const [base, quote] = match.tokenPair.split("/");
     const baseToken = base ?? "WETH";
     const quoteToken = quote ?? "USDC";
@@ -287,8 +283,42 @@ export class RealMatchService implements MatchService {
     this.applyDecisionPaper(matchId, contender, state, signal, currentPrice, baseToken, quoteToken, maxTradeUsd);
   }
 
+  private async resolveSwapMetadata(raw: UniswapQuoteResponse): Promise<{
+    executionMode: NonNullable<TradeEvent["executionMode"]>;
+    mockSwapBuild?: TradeEvent["mockSwapBuild"];
+    unsignedSwap?: TradeEvent["unsignedSwap"];
+    swapRequestId?: string;
+    swapError?: string;
+  }> {
+    if (this.config.uniswap.swapMode === "mock") {
+      return {
+        executionMode: "uniswap_quote_mock",
+        mockSwapBuild: this.uniswap.buildMockSwapBuild(raw),
+      };
+    }
+    try {
+      const built = await this.uniswap.createProtocolSwap(raw);
+      return {
+        executionMode: "uniswap_live_swap",
+        swapRequestId: built.requestId,
+        unsignedSwap: {
+          ...built.swap,
+          gasFee: built.gasFee,
+        },
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[Uniswap] POST /swap failed:", err);
+      return {
+        executionMode: "uniswap_live_swap",
+        swapError: msg,
+        mockSwapBuild: this.uniswap.buildMockSwapBuild(raw),
+      };
+    }
+  }
+
   /**
-   * Real `/quote` route sizes + `/check_approval`; mock swap metadata only (never POST /swap).
+   * Real `/quote` route sizes + `/check_approval`; `POST /swap` when `UNISWAP_SWAP_MODE=live`.
    */
   private async tryApplyDecisionWithUniswapQuotes(
     matchId: string,
@@ -325,7 +355,8 @@ export class RealMatchService implements MatchService {
           console.error("[Uniswap] check_approval failed (continuing with quote fill):", apErr);
         }
 
-        const mockBuild = this.uniswap.buildMockSwapBuild(q.raw);
+        const swapMeta = await this.resolveSwapMetadata(q.raw);
+        const gasUsd = gasUsdFromQuoteResponse(q.raw) ?? Number((Math.random() * 1.5 + 0.8).toFixed(2));
 
         const debitQuote = fromBaseUnits(q.amountIn, quoteDecimals);
         const creditBase = fromBaseUnits(q.amountOut, tokenDecimals(baseToken));
@@ -341,11 +372,14 @@ export class RealMatchService implements MatchService {
           txHash: `0x${randomUUID().replace(/-/g, "").slice(0, 32)}`,
           sold: { token: quoteToken, amount: Number(debitQuote.toFixed(quoteDecimals <= 9 ? 6 : 8)) },
           bought: { token: baseToken, amount: Number(creditBase.toFixed(tokenDecimals(baseToken) <= 9 ? 6 : 8)) },
-          gasUsd: Number((Math.random() * 1.5 + 0.8).toFixed(2)),
+          gasUsd,
           timestamp: new Date().toISOString(),
-          executionMode: "uniswap_quote_mock",
+          executionMode: swapMeta.executionMode,
           quoteRouting: q.routing,
-          mockSwapBuild: mockBuild,
+          mockSwapBuild: swapMeta.mockSwapBuild,
+          unsignedSwap: swapMeta.unsignedSwap,
+          swapRequestId: swapMeta.swapRequestId,
+          swapError: swapMeta.swapError,
           approvalRequestId,
         };
 
@@ -384,7 +418,8 @@ export class RealMatchService implements MatchService {
           console.error("[Uniswap] check_approval failed (continuing with quote fill):", apErr);
         }
 
-        const mockBuild = this.uniswap.buildMockSwapBuild(q.raw);
+        const swapMeta = await this.resolveSwapMetadata(q.raw);
+        const gasUsd = gasUsdFromQuoteResponse(q.raw) ?? Number((Math.random() * 1.5 + 0.8).toFixed(2));
 
         const soldBase = fromBaseUnits(q.amountIn, baseDecimals);
         const boughtQuote = fromBaseUnits(q.amountOut, tokenDecimals(quoteToken));
@@ -400,11 +435,14 @@ export class RealMatchService implements MatchService {
           txHash: `0x${randomUUID().replace(/-/g, "").slice(0, 32)}`,
           sold: { token: baseToken, amount: Number(soldBase.toFixed(tokenDecimals(baseToken) <= 9 ? 6 : 8)) },
           bought: { token: quoteToken, amount: Number(boughtQuote.toFixed(6)) },
-          gasUsd: Number((Math.random() * 1.5 + 0.8).toFixed(2)),
+          gasUsd,
           timestamp: new Date().toISOString(),
-          executionMode: "uniswap_quote_mock",
+          executionMode: swapMeta.executionMode,
           quoteRouting: q.routing,
-          mockSwapBuild: mockBuild,
+          mockSwapBuild: swapMeta.mockSwapBuild,
+          unsignedSwap: swapMeta.unsignedSwap,
+          swapRequestId: swapMeta.swapRequestId,
+          swapError: swapMeta.swapError,
           approvalRequestId,
         };
 

@@ -18,6 +18,12 @@ export interface AppConfig {
     maxRetries: number;
     /** `mock` = never call POST /swap; `live` = build unsigned txs via POST /swap (requires signing/broadcast). */
     swapMode: "mock" | "live";
+    /** When true, sends `x-permit2-disabled: true` on quote/check_approval/swap (proxy ERC-20 approve flow; no Permit2 EIP-712 sig). */
+    permit2Disabled: boolean;
+    /** Must stay consistent across quote and swap (Uniswap API). */
+    universalRouterVersion: string;
+    /** Optional hex signature for Permit2 when quote returns permitData (live swap). */
+    permitSignature: string;
   };
   agents: {
     pythonPath: string;
@@ -38,6 +44,15 @@ function parseSwapMode(raw: string | undefined): "mock" | "live" {
   const v = (raw ?? "mock").toLowerCase();
   if (v === "live") return "live";
   return "mock";
+}
+
+function envBool(name: string, fallback: boolean): boolean {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  const v = raw.toLowerCase();
+  if (v === "true" || v === "1" || v === "yes") return true;
+  if (v === "false" || v === "0" || v === "no") return false;
+  return fallback;
 }
 
 export function getConfig(): AppConfig {
@@ -65,6 +80,9 @@ export function getConfig(): AppConfig {
       timeoutMs: envNumber("UNISWAP_TIMEOUT_MS", 15000),
       maxRetries: envNumber("UNISWAP_MAX_RETRIES", 2),
       swapMode: parseSwapMode(process.env.UNISWAP_SWAP_MODE),
+      permit2Disabled: envBool("UNISWAP_PERMIT2_DISABLED", false),
+      universalRouterVersion: process.env.UNISWAP_UNIVERSAL_ROUTER_VERSION ?? "2.0",
+      permitSignature: process.env.UNISWAP_PERMIT_SIGNATURE ?? "",
     },
     agents: {
       pythonPath: process.env.AGENTS_PYTHON_PATH ?? "python3",

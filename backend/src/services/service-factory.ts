@@ -19,6 +19,9 @@ export function createMatchService(
     swapperAddress: config.uniswap.swapperAddress,
     timeoutMs: config.uniswap.timeoutMs,
     maxRetries: config.uniswap.maxRetries,
+    permit2Disabled: config.uniswap.permit2Disabled,
+    universalRouterVersion: config.uniswap.universalRouterVersion,
+    permitSignature: config.uniswap.permitSignature,
   });
 
   return new RealMatchService(config, agentService, store, processManager, uniswap);
