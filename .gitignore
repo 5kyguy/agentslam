@@ -5,6 +5,10 @@
 # Environment variables
 .env
 
+# Agents
+agents/.*venv/
+agents/*.egg-info/
+
 # Backend
 backend/dist/
 backend/node_modules/

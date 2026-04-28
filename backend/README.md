@@ -11,8 +11,8 @@ docker compose up -d
 # 2. Install backend dependencies
 cd backend && npm install
 
-# 3. Install Python agent package (for real mode)
-cd ../agents && pip install -e .
+# 3. Install Python agent package in a venv (required on Arch and other PEP 668 distros)
+cd ../agents && python -m venv .venv && . .venv/bin/activate && pip install -e .
 
 # 4. Copy env and configure
 cp backend/.env.example backend/.env

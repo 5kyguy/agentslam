@@ -12,9 +12,9 @@ docker compose up -d
 
 # Install backend + Python agents
 cd backend && npm install
-cd ../agents && pip install -e .
+cd ../agents && python -m venv .venv && . .venv/bin/activate && pip install -e .
 
-# Configure and run
+# Configure and run (`BACKEND_MODE=real`: point AGENTS_PYTHON_PATH at agents/.venv/bin/python — see backend/README.md)
 cp backend/.env.example backend/.env
 cd backend && npm run dev
 ```
