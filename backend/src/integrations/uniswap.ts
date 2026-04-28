@@ -151,7 +151,7 @@ export class UniswapClient {
   }
 
   /**
-   * EXACT_INPUT quote for a specific size (base units). Used when `UNISWAP_EXECUTION=true` for paper fills from real routes.
+   * EXACT_INPUT quote for a specific size (base units). Used for paper fills from real routes.
    */
   async getExactInputQuote(params: {
     tokenInSymbol: string;

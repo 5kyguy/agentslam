@@ -33,10 +33,9 @@ agentslam/
 │   │   │   └── ws-routes.ts        # WS: /ws/matches/:id
 │   │   ├── services/
 │   │   │   ├── agent-service.ts    # Agent CRUD and stats
-│   │   │   ├── dummy-match-service.ts  # Simulated match engine (dummy mode)
 │   │   │   ├── match-service.ts    # MatchService interface
 │   │   │   ├── real-match-service.ts   # Real match engine (Python agents)
-│   │   │   ├── service-factory.ts  # Creates correct MatchService based on config
+│   │   │   ├── service-factory.ts  # Creates RealMatchService
 │   │   │   └── strategy-catalog.ts # Available strategy definitions
 │   │   ├── store/
 │   │   │   ├── in-memory-store.ts  # In-memory Store (used by tests)
@@ -46,7 +45,7 @@ agentslam/
 │   │   ├── types.ts                # Shared TypeScript types
 │   │   └── app.ts                  # Fastify app bootstrap
 │   ├── tests/
-│   │   └── smoke.ts                # Smoke test (dummy mode, no external deps)
+│   │   └── smoke.ts                # Smoke test (in-memory store + stub process manager)
 │   ├── docker-compose.yml          # PostgreSQL 17 only
 │   ├── .env.example
 │   └── package.json
@@ -282,17 +281,11 @@ The `/ws/matches/:id` endpoint streams events to frontend clients.
 PORT=8787
 HOST=0.0.0.0
 CORS_ORIGIN=*
-BACKEND_MODE=dummy          # "dummy" for simulated, "real" for Python agents
 
 # Database
 DATABASE_URL=postgresql://agentslam:agentslam@localhost:5432/agentslam
 
-# Simulation (dummy mode)
-SIM_SEED=42
-SIM_TICK_MS=2000
-SIM_ERROR_RATE=0
-
-# Python agents (real mode)
+# Python agents
 AGENTS_PYTHON_PATH=python3
 AGENTS_PACKAGE_DIR=/path/to/agentslam/agents
 
@@ -303,7 +296,6 @@ LLM_MODEL=gpt-4o-mini
 LLM_BASE_URL=https://api.openai.com/v1
 
 # Uniswap (optional price feed)
-UNISWAP_ENABLED=false
 UNISWAP_API_KEY=
 UNISWAP_CHAIN_ID=1
 UNISWAP_TIMEOUT_MS=15000
@@ -316,7 +308,7 @@ UNISWAP_MAX_RETRIES=2
 | --- | --- |
 | Agent process crashes | Backend detects disconnect, defaults to hold for remaining ticks |
 | Agent evaluate timeout | 8-second timeout, defaults to hold |
-| Uniswap API error | Falls back to simulated random-walk prices |
+| Uniswap API error | Reuses previous tick price |
 | Agent not connected at tick | Returns hold signal, match continues |
 | Match stop requested | Backend kills both agent processes, releases agents to "ready" |
 

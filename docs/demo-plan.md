@@ -26,13 +26,13 @@ cd agents && pip install -e . && cd ..
 
 # 3. Configure backend
 cp backend/.env.example backend/.env
-# Edit .env: set BACKEND_MODE=real, AGENTS_PACKAGE_DIR=/path/to/agentslam/agents
+# Edit .env: set AGENTS_PACKAGE_DIR=/path/to/agentslam/agents
 
 # 4. Start the backend
 cd backend && npm run dev
 ```
 
-Optional: set `UNISWAP_ENABLED=true` and `UNISWAP_API_KEY=...` for real Uniswap price feeds.
+Set `UNISWAP_API_KEY=...` to enable Uniswap Trading API price feeds.
 
 ## What The Audience Should Understand
 

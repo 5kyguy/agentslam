@@ -113,7 +113,7 @@ All strategies are purely algorithmic — no LLM calls, fast and deterministic.
 
 ## Uniswap Integration
 
-Uniswap is the market data layer (optional). When enabled, the backend fetches real prices from the Uniswap Trading API for match ticks. When disabled or on error, prices are simulated with random walks.
+Uniswap is the market data layer. The backend fetches real prices from the Uniswap Trading API for match ticks. On API errors, it reuses the previous tick price.
 
 - Trading API base URL: `https://trade-api.gateway.uniswap.org/v1`
 - Uses the `/quote` endpoint for price discovery

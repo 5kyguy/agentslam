@@ -43,7 +43,7 @@ export class RealMatchService implements MatchService {
     private readonly agentService: AgentService,
     private readonly store: Store,
     private readonly processManager: AgentProcessManager,
-    private readonly uniswap?: UniswapClient,
+    private readonly uniswap: UniswapClient,
   ) {}
 
   createMatch(input: MatchCreateRequest): MatchState {
@@ -300,10 +300,6 @@ export class RealMatchService implements MatchService {
     quoteToken: string,
     maxTradeUsd: number,
   ): Promise<boolean> {
-    if (!this.uniswap || !this.config.uniswap.execution) {
-      return false;
-    }
-
     try {
       if (signal.action === "buy") {
         let amountUsd = Math.min(signal.amount, contender.usdcBalance, maxTradeUsd);
@@ -497,10 +493,6 @@ export class RealMatchService implements MatchService {
   }
 
   private async fetchPrice(fallbackPrice: number, tokenPair: string): Promise<number> {
-    if (!this.uniswap) {
-      return this.simulatePriceMove(fallbackPrice);
-    }
-
     try {
       const [base, quote] = tokenPair.split("/");
       const result = await this.uniswap.getPrice(quote ?? "USDC", base ?? "WETH");
@@ -508,15 +500,10 @@ export class RealMatchService implements MatchService {
         return Number(result.price.toFixed(2));
       }
     } catch (err) {
-      console.error("[UniswapClient] price fetch failed, using fallback:", err);
+      console.error("[UniswapClient] price fetch failed, reusing previous price:", err);
     }
 
-    return this.simulatePriceMove(fallbackPrice);
-  }
-
-  private simulatePriceMove(currentPrice: number): number {
-    const change = (Math.random() - 0.5) * 16;
-    return Number((currentPrice + change).toFixed(2));
+    return fallbackPrice;
   }
 
   private killAgents(matchId: string): void {

@@ -3,7 +3,6 @@ import type { MatchService } from "./match-service.js";
 import type { AgentService } from "./agent-service.js";
 import type { Store } from "../store/store.js";
 import type { AgentProcessManager } from "../agents/process-manager.js";
-import { DummyMatchService } from "./dummy-match-service.js";
 import { RealMatchService } from "./real-match-service.js";
 import { UniswapClient } from "../integrations/uniswap.js";
 
@@ -13,19 +12,14 @@ export function createMatchService(
   store: Store,
   processManager: AgentProcessManager,
 ): MatchService {
-  if (config.backendMode === "real") {
-    const uniswap = config.uniswap.enabled && config.uniswap.apiKey
-      ? new UniswapClient({
-          apiKey: config.uniswap.apiKey,
-          baseUrl: config.uniswap.baseUrl,
-          chainId: config.uniswap.chainId,
-          swapperAddress: config.uniswap.swapperAddress,
-          timeoutMs: config.uniswap.timeoutMs,
-          maxRetries: config.uniswap.maxRetries,
-        })
-      : undefined;
+  const uniswap = new UniswapClient({
+    apiKey: config.uniswap.apiKey,
+    baseUrl: config.uniswap.baseUrl,
+    chainId: config.uniswap.chainId,
+    swapperAddress: config.uniswap.swapperAddress,
+    timeoutMs: config.uniswap.timeoutMs,
+    maxRetries: config.uniswap.maxRetries,
+  });
 
-    return new RealMatchService(config, agentService, store, processManager, uniswap);
-  }
-  return new DummyMatchService(config, store);
+  return new RealMatchService(config, agentService, store, processManager, uniswap);
 }

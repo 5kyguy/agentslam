@@ -26,9 +26,9 @@ Server default: `http://localhost:8787`
 ## Prerequisites
 
 - **Node.js 22+**
-- **Python 3.11+** (for real-mode agent processes)
+- **Python 3.11+** (for agent processes)
 - **Docker** (for PostgreSQL)
-- **Uniswap API key** (optional — set `UNISWAP_ENABLED=true` and `UNISWAP_API_KEY=...` for real price feeds)
+- **Uniswap API key** (`UNISWAP_API_KEY=...`, required)
 
 ## Environment
 
@@ -41,18 +41,9 @@ Copy `.env.example` to `.env` and adjust:
 | `PORT` | `8787` | Server port |
 | `HOST` | `0.0.0.0` | Server bind address |
 | `CORS_ORIGIN` | `*` | Frontend origin allow-list |
-| `BACKEND_MODE` | `dummy` | `dummy` uses simulated agents, `real` spawns Python agent processes |
 | `DATABASE_URL` | `postgresql://agentslam:agentslam@localhost:5432/agentslam` | PostgreSQL connection string |
 
-### Simulation (dummy mode)
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `SIM_SEED` | `42` | Deterministic simulated behavior seed |
-| `SIM_TICK_MS` | `2000` | Simulation tick interval in milliseconds |
-| `SIM_ERROR_RATE` | `0` | Probability of simulated trade errors |
-
-### Python Agents (real mode)
+### Python Agents
 
 | Variable | Default | Description |
 | --- | --- | --- |
@@ -68,27 +59,25 @@ Copy `.env.example` to `.env` and adjust:
 | `LLM_MODEL` | `gpt-4o-mini` | Model identifier |
 | `LLM_BASE_URL` | `https://api.openai.com/v1` | API base URL |
 
-### Uniswap (Trading API — quotes, optional execution-sized fills)
+### Uniswap (Trading API — required)
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `UNISWAP_ENABLED` | `false` | Enable Uniswap Trading API client (requires `UNISWAP_API_KEY`) |
-| `UNISWAP_API_KEY` | (empty) | API key from [Uniswap developer dashboard](https://developers.uniswap.org/dashboard) |
+| `UNISWAP_API_KEY` | (required) | API key from [Uniswap developer dashboard](https://developers.uniswap.org/dashboard) |
 | `UNISWAP_BASE_URL` | `https://trade-api.gateway.uniswap.org/v1` | Trading API base URL |
 | `UNISWAP_CHAIN_ID` | `1` | Chain ID for quotes and approval checks |
 | `UNISWAP_SWAPPER_ADDRESS` | Vitalik placeholder | Wallet address used as `swapper` in `/quote` and `walletAddress` in `/check_approval` (no funds needed for quote-only use) |
 | `UNISWAP_TIMEOUT_MS` | `15000` | Request timeout |
 | `UNISWAP_MAX_RETRIES` | `2` | Max retry count on failure |
-| `UNISWAP_EXECUTION` | `false` | When `true` and real mode has a Uniswap client, match **trades** use real `POST /quote` amounts + `POST /check_approval`; balances stay **paper**. Falls back to price-based math if the API errors. |
-| `UNISWAP_SWAP_MODE` | `mock` | `mock` = never call `POST /swap` (unsigned tx / calldata are not requested). Use `live` later when you wire signing + broadcast; until then the backend still skips `POST /swap` and logs a one-time warning. |
+| `UNISWAP_SWAP_MODE` | `mock` | `mock` = never call `POST /swap` (unsigned tx / calldata are not requested). Set to `live` when you wire signing + broadcast; until then the backend skips `POST /swap` and logs a one-time warning. |
 
 **Endpoints used:** `POST /quote` (price ticks and trade sizing), `POST /check_approval`. **`POST /swap` is not called** in `mock` mode so you can demo real routing without spending gas.
 
 **Supported pair symbols** (mainnet addresses in code): `WETH`, `USDC`, `USDT`, `DAI`, `WBTC`, `UNI`, `LINK`, plus raw `0x…` addresses.
 
-## How Real Mode Works
+## How Match Execution Works
 
-In `BACKEND_MODE=real`, the match service spawns Python agent processes:
+The match service always spawns Python agent processes:
 
 1. On match creation, `AgentProcessManager` spawns two Python processes (`python3 -m chain_slam_agents ...`).
 2. Each Python process connects to the backend via WebSocket at `/ws/agent/:agentId`.
@@ -97,9 +86,9 @@ In `BACKEND_MODE=real`, the match service spawns Python agent processes:
 5. The backend applies trades, tracks portfolios, and streams updates to the UI.
 6. When the match ends, the backend sends `match_end` to both agents and kills the processes.
 
-Portfolio balances are always **paper** (no on-chain swap broadcast). With `UNISWAP_EXECUTION=true`, fill sizes follow **live Uniswap quotes** and **approval checks**; with `UNISWAP_EXECUTION=false`, fills use the spot price from the tick (`ethPrice`) like before. The backend owns portfolio state — agents only evaluate and decide.
+Portfolio balances are always **paper** (no on-chain swap broadcast). Fill sizes follow **live Uniswap quotes** and **approval checks**; on quote errors, fills fall back to the spot price from the tick. If price fetch fails, the service reuses the previous tick price. The backend owns portfolio state — agents only evaluate and decide.
 
-**Demo (real quotes, no capital):** `BACKEND_MODE=real`, `UNISWAP_ENABLED=true`, `UNISWAP_API_KEY=…`, `UNISWAP_EXECUTION=true`, `UNISWAP_SWAP_MODE=mock`.
+**Demo (real quotes, no capital):** `UNISWAP_API_KEY=…`, `UNISWAP_SWAP_MODE=mock`.
 
 ### Python Agent Strategies
 
@@ -267,7 +256,7 @@ The smoke script verifies:
 4. Stop endpoint
 5. Leaderboard retrieval
 
-The smoke test runs in `dummy` mode and does not require PostgreSQL or Python.
+The smoke test uses in-memory store + stubbed agent process manager, so it does not require PostgreSQL or Python.
 
 ## Terminal UI (TUI)
 

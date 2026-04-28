@@ -8,13 +8,15 @@ import { registerWsRoutes } from "../src/routes/ws-routes.js";
 import { createMatchService } from "../src/services/service-factory.js";
 import { AgentService } from "../src/services/agent-service.js";
 import { InMemoryStore } from "../src/store/in-memory-store.js";
-import type { AgentProcessManager } from "../src/agents/process-manager.js";
+import type { AgentProcessManager, ManagedAgent } from "../src/agents/process-manager.js";
+import type { StrategySignal, TickContext } from "../src/types.js";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function run() {
+  process.env.UNISWAP_API_KEY = process.env.UNISWAP_API_KEY || "smoke-test-key";
   const config = getConfig();
   const app = Fastify({ logger: false });
 
@@ -22,7 +24,39 @@ async function run() {
   await store.init();
 
   const agentService = new AgentService(config, store);
-  const stubProcessManager = { spawn: () => { throw new Error("not implemented"); }, kill() {}, get() { return undefined; }, killAll() {} } as unknown as AgentProcessManager;
+
+  const holdSignal: StrategySignal = {
+    action: "hold",
+    amount: 0,
+    reasoning: "Smoke test stub agent.",
+    confidence: 0,
+  };
+
+  const managedById = new Map<string, ManagedAgent>();
+  const stubProcessManager = {
+    spawn(agentId: string) {
+      const managed = {
+        agentId,
+        process: { kill() {}, on() {}, stdout: null, stderr: null } as unknown as ManagedAgent["process"],
+        connection: {
+          evaluate: async (_ctx: TickContext) => holdSignal,
+          sendEnd() {},
+        },
+      } as unknown as ManagedAgent;
+      managedById.set(agentId, managed);
+      return managed;
+    },
+    kill(agentId: string) {
+      managedById.delete(agentId);
+    },
+    get(agentId: string) {
+      return managedById.get(agentId);
+    },
+    killAll() {
+      managedById.clear();
+    },
+  } as unknown as AgentProcessManager;
+
   app.decorate("matchService", createMatchService(config, agentService, store, stubProcessManager));
   app.decorate("agentService", agentService);
   await app.register(cors, { origin: "*" });
@@ -81,7 +115,7 @@ async function run() {
     wsEvents.push(payload.event);
   });
 
-  await sleep(Math.max(config.simTickMs * 2, 2200));
+  await sleep(500);
 
   const match = await fetch(`${httpBase}/api/matches/${created.id}`).then((r) => r.json());
   const feed = await fetch(`${httpBase}/api/matches/${created.id}/feed`).then((r) => r.json());

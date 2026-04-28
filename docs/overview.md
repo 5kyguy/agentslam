@@ -71,7 +71,7 @@ All strategies are purely algorithmic — no LLM dependency — for speed, relia
 
 ## Price Feeds
 
-By default, prices are simulated with a random walk. Set `UNISWAP_ENABLED=true` with a valid API key to use real Uniswap Trading API quotes. On-chain execution is not yet implemented — all trading is paper-based.
+Prices are sourced from the Uniswap Trading API (`/quote`) using your configured API key. On-chain execution is not yet implemented — all trading is paper-based.
 
 ## Why It Works
 
