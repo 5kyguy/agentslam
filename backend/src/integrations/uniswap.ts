@@ -171,8 +171,8 @@ export class UniswapClient {
   }
 
   async getPrice(tokenInSymbol: string, tokenOutSymbol: string): Promise<PriceResult> {
-    const tokenIn = resolveToken(tokenInSymbol);
-    const tokenOut = resolveToken(tokenOutSymbol);
+    const tokenIn = resolveToken(tokenInSymbol, this.config.chainId);
+    const tokenOut = resolveToken(tokenOutSymbol, this.config.chainId);
     const decimalsIn = tokenDecimals(tokenInSymbol);
 
     const probeAmount = toBaseUnitsFromDecimals(1, decimalsIn);
@@ -209,8 +209,8 @@ export class UniswapClient {
     amountInBaseUnits: string;
     slippageTolerance?: number;
   }): Promise<ExactInputQuoteResult> {
-    const tokenIn = resolveToken(params.tokenInSymbol);
-    const tokenOut = resolveToken(params.tokenOutSymbol);
+    const tokenIn = resolveToken(params.tokenInSymbol, this.config.chainId);
+    const tokenOut = resolveToken(params.tokenOutSymbol, this.config.chainId);
     const body = this.buildQuoteBody(tokenIn, tokenOut, params.amountInBaseUnits, params.slippageTolerance);
 
     const raw = await this.postQuoteWithRetry(body);
@@ -239,7 +239,7 @@ export class UniswapClient {
     amountBaseUnits: string;
     walletAddress?: string;
   }): Promise<CheckApprovalResult> {
-    const token = resolveToken(params.tokenInSymbolOrAddress);
+    const token = resolveToken(params.tokenInSymbolOrAddress, this.config.chainId);
     const walletAddress = params.walletAddress ?? this.config.swapperAddress;
     const body = {
       walletAddress,

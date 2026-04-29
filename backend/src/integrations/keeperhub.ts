@@ -28,8 +28,8 @@ export interface KeeperHubExecutionStatus {
   raw: unknown;
 }
 
-/** Universal Router-style `execute` overloads used by Uniswap Trading API `/swap` calldata */
-const UNIVERSAL_ROUTER_EXECUTE_ABI: Abi = [
+/** Uniswap Trading API `/swap` calldata shapes returned by Permit2 and proxy-approval flows. */
+const UNISWAP_SWAP_EXECUTE_ABI: Abi = [
   {
     type: "function",
     name: "execute",
@@ -48,6 +48,20 @@ const UNIVERSAL_ROUTER_EXECUTE_ABI: Abi = [
     inputs: [
       { name: "commands", type: "bytes" },
       { name: "inputs", type: "bytes[]" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "execute",
+    stateMutability: "payable",
+    inputs: [
+      { name: "router", type: "address" },
+      { name: "tokenIn", type: "address" },
+      { name: "amountIn", type: "uint256" },
+      { name: "commands", type: "bytes" },
+      { name: "inputs", type: "bytes[]" },
+      { name: "deadline", type: "uint256" },
     ],
     outputs: [],
   },
@@ -154,14 +168,14 @@ export function decodeUniversalRouterExecuteCalldata(data: string | undefined): 
 
   try {
     const decoded = decodeFunctionData({
-      abi: UNIVERSAL_ROUTER_EXECUTE_ABI,
+      abi: UNISWAP_SWAP_EXECUTE_ABI,
       data: data as `0x${string}`,
     });
     const functionArgsJson = encodeFunctionArgsJson(decoded.args as readonly unknown[]);
     return {
       functionName: "execute",
       functionArgsJson,
-      abiJson: JSON.stringify(UNIVERSAL_ROUTER_EXECUTE_ABI),
+      abiJson: JSON.stringify(UNISWAP_SWAP_EXECUTE_ABI),
     };
   } catch {
     return null;
@@ -199,7 +213,7 @@ export class KeeperHubClient {
       return {
         ok: false,
         error:
-          "Could not decode Universal Router calldata for KeeperHub (expected execute(bytes,bytes[],uint256) or execute(bytes,bytes[]))",
+          "Could not decode Uniswap swap calldata for KeeperHub (expected Universal Router execute(bytes,bytes[],uint256), execute(bytes,bytes[]), or proxy execute(address,address,uint256,bytes,bytes[],uint256))",
         httpRetries: 0,
       };
     }
@@ -214,6 +228,7 @@ export class KeeperHubClient {
       };
     }
     const valueWei = normalizeTxValueWei(unsigned.value);
+    const apiKey = this.cfg.apiKey.trim();
 
     const body = {
       contractAddress: to,
@@ -238,7 +253,8 @@ export class KeeperHubClient {
           headers: {
             "content-type": "application/json",
             Accept: "application/json",
-            "X-API-Key": this.cfg.apiKey,
+            "X-API-Key": apiKey,
+            Authorization: `Bearer ${apiKey}`,
           },
           body: JSON.stringify(body),
           signal: controller.signal,
@@ -317,6 +333,7 @@ export class KeeperHubClient {
     const max = Math.max(0, this.cfg.maxRetries);
     let lastErr = "KeeperHub status request failed";
     const encoded = encodeURIComponent(executionId);
+    const apiKey = this.cfg.apiKey.trim();
 
     for (let attempt = 0; attempt <= max; attempt++) {
       try {
@@ -326,7 +343,8 @@ export class KeeperHubClient {
           method: "GET",
           headers: {
             Accept: "application/json",
-            "X-API-Key": this.cfg.apiKey,
+            "X-API-Key": apiKey,
+            Authorization: `Bearer ${apiKey}`,
           },
           signal: controller.signal,
         });

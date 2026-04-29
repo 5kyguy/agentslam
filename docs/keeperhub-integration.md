@@ -20,14 +20,17 @@ The core API remains resilient: if KeeperHub submission or polling fails, the ma
 Use a conservative canary setup for judging:
 
 ```bash
+UNISWAP_CHAIN_ID=11155111
 UNISWAP_SWAP_MODE=live
+UNISWAP_PERMIT2_DISABLED=true
 KEEPERHUB_API_KEY=...
 MIN_TRADE_USD=0.1
 MAX_TRADE_USD_ABSOLUTE=1
 DEFAULT_PER_AGENT_STARTING_CAPITAL_USD=1
+ZEROG_ENABLED=false
 ```
 
-Fund the configured swapper/KeeperHub execution wallet with minimal balances and approvals only. Run a mock match first with `UNISWAP_SWAP_MODE=mock`, then switch to live for one short match.
+For Sepolia, built-in `WETH/USDC` resolves to Sepolia WETH and Circle test USDC. Set `UNISWAP_SWAPPER_ADDRESS` to the KeeperHub organization wallet address, then fund that wallet with Sepolia ETH and the test tokens/approvals needed for the swap. Run a mock match first with `UNISWAP_SWAP_MODE=mock`, then switch to live for one short match.
 
 ## Judge-Facing Evidence
 

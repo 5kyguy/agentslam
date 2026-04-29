@@ -27,11 +27,43 @@ const EXECUTE_ABI: Abi = [
   },
 ];
 
+const PROXY_EXECUTE_ABI: Abi = [
+  {
+    type: "function",
+    name: "execute",
+    stateMutability: "payable",
+    inputs: [
+      { name: "router", type: "address" },
+      { name: "tokenIn", type: "address" },
+      { name: "amountIn", type: "uint256" },
+      { name: "commands", type: "bytes" },
+      { name: "inputs", type: "bytes[]" },
+      { name: "deadline", type: "uint256" },
+    ],
+    outputs: [],
+  },
+];
+
 function encodedUniversalRouterCall(): string {
   return encodeFunctionData({
     abi: EXECUTE_ABI,
     functionName: "execute",
     args: ["0x0b00", ["0x1234", "0xabcd"], 123n],
+  });
+}
+
+function encodedProxyApprovalCall(): string {
+  return encodeFunctionData({
+    abi: PROXY_EXECUTE_ABI,
+    functionName: "execute",
+    args: [
+      "0x66a9893cc07d91d95644aedd05d03f95e1dba8af",
+      "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      1000000n,
+      "0x0b00",
+      ["0x1234", "0xabcd"],
+      1777486606n,
+    ],
   });
 }
 
@@ -69,6 +101,23 @@ test("KeeperHub calldata helpers decode Universal Router execute calldata", () =
   assert.equal(decoded.functionArgsJson, JSON.stringify(["0x0b00", ["0x1234", "0xabcd"], "123"]));
   assert.equal(chainIdToKeeperHubNetwork(8453), "base");
   assert.equal(chainIdToKeeperHubNetwork(999999), undefined);
+});
+
+test("KeeperHub calldata helpers decode Uniswap proxy approval execute calldata", () => {
+  const decoded = decodeUniversalRouterExecuteCalldata(encodedProxyApprovalCall());
+  assert.ok(decoded);
+  assert.equal(decoded.functionName, "execute");
+  assert.equal(
+    decoded.functionArgsJson,
+    JSON.stringify([
+      "0x66a9893cC07D91D95644AEDD05D03f95e1dBA8Af",
+      "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      "1000000",
+      "0x0b00",
+      ["0x1234", "0xabcd"],
+      "1777486606",
+    ]),
+  );
 });
 
 test("KeeperHub status normalization handles common terminal variants", () => {
