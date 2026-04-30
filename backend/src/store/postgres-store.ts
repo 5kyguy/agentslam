@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import type { AgentState, AgentStats, DecisionEvent, LeaderboardEntry, MatchState, TradeEvent } from "../types.js";
+import type { MatchListFilter } from "./store.js";
 import { InMemoryStore } from "./in-memory-store.js";
 
 const SCHEMA = `
@@ -138,6 +139,10 @@ export class PostgresStore extends InMemoryStore {
   override updateMatch(match: MatchState): void {
     super.updateMatch(match);
     this.upsertMatch(match);
+  }
+
+  override listMatches(filter?: MatchListFilter): MatchState[] {
+    return super.listMatches(filter);
   }
 
   override addTrade(matchId: string, trade: TradeEvent): void {

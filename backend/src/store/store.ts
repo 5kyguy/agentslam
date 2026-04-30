@@ -1,9 +1,16 @@
 import type { AgentState, AgentStatus, AgentStats, DecisionEvent, FeedEvent, LeaderboardEntry, MatchState, TradeEvent, WsEnvelope } from "../types.js";
 
+export interface MatchListFilter {
+  status?: MatchState["status"];
+  limit?: number;
+  offset?: number;
+}
+
 export interface Store {
   saveMatch(match: MatchState): void;
   getMatch(id: string): MatchState | undefined;
   updateMatch(match: MatchState): void;
+  listMatches(filter?: MatchListFilter): MatchState[];
 
   addTrade(matchId: string, trade: TradeEvent): void;
   /** Merge execution fields into an existing trade (KeeperHub receipts, tx hash). Idempotent per `tradeRecordId`. */
@@ -24,6 +31,9 @@ export interface Store {
 
   subscribe(matchId: string, listener: (event: WsEnvelope) => void): () => void;
   publish(matchId: string, message: WsEnvelope): void;
+
+  subscribeGlobal(listener: (event: WsEnvelope) => void): () => void;
+  publishGlobal(message: WsEnvelope): void;
 
   setInterval(matchId: string, interval: NodeJS.Timeout): void;
   getInterval(matchId: string): NodeJS.Timeout | undefined;

@@ -1,5 +1,5 @@
 import type { AgentState, AgentStatus, AgentStats, DecisionEvent, FeedEvent, LeaderboardEntry, MatchState, TradeEvent, WsEnvelope } from "../types.js";
-import type { Store } from "./store.js";
+import type { MatchListFilter, Store } from "./store.js";
 
 export class InMemoryStore implements Store {
   protected readonly agentsById = new Map<string, AgentState>();
@@ -7,6 +7,7 @@ export class InMemoryStore implements Store {
   protected readonly tradeHistoryByMatchId = new Map<string, TradeEvent[]>();
   protected readonly decisionFeedByMatchId = new Map<string, DecisionEvent[]>();
   protected readonly wsSubscribersByMatchId = new Map<string, Set<(event: WsEnvelope) => void>>();
+  protected readonly globalSubscribers = new Set<(event: WsEnvelope) => void>();
   protected readonly intervalsByMatchId = new Map<string, NodeJS.Timeout>();
   protected leaderboardEntries: LeaderboardEntry[] = [];
 
@@ -20,6 +21,17 @@ export class InMemoryStore implements Store {
 
   updateMatch(match: MatchState): void {
     this.matchesById.set(match.id, match);
+  }
+
+  listMatches(filter?: MatchListFilter): MatchState[] {
+    let matches = [...this.matchesById.values()];
+    if (filter?.status) {
+      matches = matches.filter((m) => m.status === filter.status);
+    }
+    matches.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const offset = filter?.offset ?? 0;
+    const limit = filter?.limit ?? 50;
+    return matches.slice(offset, offset + limit);
   }
 
   addTrade(matchId: string, trade: TradeEvent): void {
@@ -112,6 +124,17 @@ export class InMemoryStore implements Store {
     const listeners = this.wsSubscribersByMatchId.get(matchId);
     if (!listeners) return;
     for (const listener of listeners) listener(message);
+  }
+
+  subscribeGlobal(listener: (event: WsEnvelope) => void): () => void {
+    this.globalSubscribers.add(listener);
+    return () => {
+      this.globalSubscribers.delete(listener);
+    };
+  }
+
+  publishGlobal(message: WsEnvelope): void {
+    for (const listener of this.globalSubscribers) listener(message);
   }
 
   setInterval(matchId: string, interval: NodeJS.Timeout): void {
