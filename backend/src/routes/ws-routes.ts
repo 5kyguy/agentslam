@@ -15,4 +15,18 @@ export async function registerWsRoutes(app: FastifyInstance): Promise<void> {
       });
     }
   );
+
+  app.get(
+    "/ws/matches",
+    { websocket: true },
+    (socket) => {
+      const unsubscribe = app.matchService.onGlobalWsConnect((event) => {
+        socket.send(JSON.stringify(event));
+      });
+
+      socket.on("close", () => {
+        unsubscribe();
+      });
+    }
+  );
 }

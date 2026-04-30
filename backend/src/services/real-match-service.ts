@@ -24,6 +24,7 @@ import type {
   TradeEvent,
   WsEnvelope,
 } from "../types.js";
+import type { MatchListFilter } from "../store/store.js";
 import { computeMatchOutcome } from "./match-outcome.js";
 import type { MemoryPage, MemoryQuery, ZeroGMemoryService } from "./zerog-memory-service.js";
 import { clampMaxTradeUsd, pnlPctFromPortfolio } from "./trading-policy.js";
@@ -171,6 +172,10 @@ export class RealMatchService implements MatchService {
     return this.store.getMatch(id);
   }
 
+  listMatches(filter?: MatchListFilter): MatchState[] {
+    return this.store.listMatches(filter);
+  }
+
   getTrades(id: string): unknown[] {
     return this.store.getTrades(id);
   }
@@ -270,6 +275,14 @@ export class RealMatchService implements MatchService {
       send({ event: "snapshot", match_id: matchId, timestamp: new Date().toISOString(), payload: match });
     }
     return this.store.subscribe(matchId, send);
+  }
+
+  onGlobalWsConnect(send: (payload: unknown) => void): () => void {
+    const running = this.store.listMatches({ status: "running" });
+    for (const match of running) {
+      send({ event: "snapshot", match_id: match.id, timestamp: new Date().toISOString(), payload: match });
+    }
+    return this.store.subscribeGlobal(send);
   }
 
   private startLoop(matchId: string): void {
@@ -827,5 +840,6 @@ export class RealMatchService implements MatchService {
   private publishEnvelope(matchId: string, eventType: WsEnvelope["event"], payload: unknown): void {
     const envelope: WsEnvelope = { event: eventType, match_id: matchId, timestamp: new Date().toISOString(), payload };
     this.store.publish(matchId, envelope);
+    this.store.publishGlobal(envelope);
   }
 }

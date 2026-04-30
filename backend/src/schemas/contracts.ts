@@ -24,6 +24,17 @@ export const paramsWithIdSchema = {
   }
 } as const;
 
+export const matchListQuerySchema = {
+  querystring: {
+    type: "object",
+    properties: {
+      status: { type: "string", enum: ["created", "running", "completed", "stopped"] },
+      limit: { type: "integer", minimum: 1, maximum: 200, default: 50 },
+      offset: { type: "integer", minimum: 0, default: 0 },
+    },
+  },
+} as const;
+
 /** Query params for `/api/matches/:id/memory` and `/api/agents/:id/memory` */
 export const memoryListQuerySchema = {
   querystring: {

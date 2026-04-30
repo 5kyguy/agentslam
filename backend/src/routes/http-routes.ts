@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { matchCreateSchema, memoryListQuerySchema, paramsWithIdSchema } from "../schemas/contracts.js";
+import { matchCreateSchema, matchListQuerySchema, memoryListQuerySchema, paramsWithIdSchema } from "../schemas/contracts.js";
 import type { MatchCreateRequest } from "../types.js";
 
 export async function registerHttpRoutes(app: FastifyInstance): Promise<void> {
@@ -8,6 +8,17 @@ export async function registerHttpRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/strategies", async () => app.matchService.getStrategies());
 
   app.get("/api/leaderboard", async () => app.matchService.getLeaderboard());
+
+  app.get<{
+    Querystring: { status?: string; limit?: number; offset?: number };
+  }>("/api/matches", { schema: matchListQuerySchema }, async (request) => {
+    const { status, limit, offset } = request.query;
+    return app.matchService.listMatches({
+      status: status as "created" | "running" | "completed" | "stopped" | undefined,
+      limit,
+      offset,
+    });
+  });
 
   app.post<{ Body: MatchCreateRequest }>("/api/matches", { schema: matchCreateSchema }, async (request, reply) => {
     const body = request.body;

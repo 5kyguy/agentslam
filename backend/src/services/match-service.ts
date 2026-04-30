@@ -1,9 +1,11 @@
 import type { KeeperHubExecutionAudit, MatchCreateRequest, MatchState } from "../types.js";
+import type { MatchListFilter } from "../store/store.js";
 import type { MemoryPage, MemoryQuery } from "./zerog-memory-service.js";
 
 export interface MatchService {
   createMatch(input: MatchCreateRequest): MatchState;
   getMatch(id: string): MatchState | undefined;
+  listMatches(filter?: MatchListFilter): MatchState[];
   getTrades(id: string): unknown[];
   getKeeperHubExecutions(id: string): KeeperHubExecutionAudit[];
   getFeed(id: string): unknown[];
@@ -11,6 +13,7 @@ export interface MatchService {
   getStrategies(): unknown[];
   getLeaderboard(): unknown[];
   onWsConnect(matchId: string, send: (payload: unknown) => void): () => void;
+  onGlobalWsConnect(send: (payload: unknown) => void): () => void;
 
   /** Phase 7C — agent/match memory timeline (in-process + optional 0G KV mirror). */
   getMatchMemory(matchId: string, query?: MemoryQuery): MemoryPage;
