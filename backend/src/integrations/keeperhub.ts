@@ -28,43 +28,49 @@ export interface KeeperHubExecutionStatus {
   raw: unknown;
 }
 
+const UNIVERSAL_ROUTER_EXECUTE_WITH_DEADLINE = {
+  type: "function",
+  name: "execute",
+  stateMutability: "payable",
+  inputs: [
+    { name: "commands", type: "bytes" },
+    { name: "inputs", type: "bytes[]" },
+    { name: "deadline", type: "uint256" },
+  ],
+  outputs: [],
+} as const;
+
+const UNIVERSAL_ROUTER_EXECUTE = {
+  type: "function",
+  name: "execute",
+  stateMutability: "payable",
+  inputs: [
+    { name: "commands", type: "bytes" },
+    { name: "inputs", type: "bytes[]" },
+  ],
+  outputs: [],
+} as const;
+
+const UNISWAP_PROXY_EXECUTE = {
+  type: "function",
+  name: "execute",
+  stateMutability: "payable",
+  inputs: [
+    { name: "router", type: "address" },
+    { name: "tokenIn", type: "address" },
+    { name: "amountIn", type: "uint256" },
+    { name: "commands", type: "bytes" },
+    { name: "inputs", type: "bytes[]" },
+    { name: "deadline", type: "uint256" },
+  ],
+  outputs: [],
+} as const;
+
 /** Uniswap Trading API `/swap` calldata shapes returned by Permit2 and proxy-approval flows. */
 const UNISWAP_SWAP_EXECUTE_ABI: Abi = [
-  {
-    type: "function",
-    name: "execute",
-    stateMutability: "payable",
-    inputs: [
-      { name: "commands", type: "bytes" },
-      { name: "inputs", type: "bytes[]" },
-      { name: "deadline", type: "uint256" },
-    ],
-    outputs: [],
-  },
-  {
-    type: "function",
-    name: "execute",
-    stateMutability: "payable",
-    inputs: [
-      { name: "commands", type: "bytes" },
-      { name: "inputs", type: "bytes[]" },
-    ],
-    outputs: [],
-  },
-  {
-    type: "function",
-    name: "execute",
-    stateMutability: "payable",
-    inputs: [
-      { name: "router", type: "address" },
-      { name: "tokenIn", type: "address" },
-      { name: "amountIn", type: "uint256" },
-      { name: "commands", type: "bytes" },
-      { name: "inputs", type: "bytes[]" },
-      { name: "deadline", type: "uint256" },
-    ],
-    outputs: [],
-  },
+  UNIVERSAL_ROUTER_EXECUTE_WITH_DEADLINE,
+  UNIVERSAL_ROUTER_EXECUTE,
+  UNISWAP_PROXY_EXECUTE,
 ];
 
 function sleep(ms: number): Promise<void> {
@@ -171,11 +177,21 @@ export function decodeUniversalRouterExecuteCalldata(data: string | undefined): 
       abi: UNISWAP_SWAP_EXECUTE_ABI,
       data: data as `0x${string}`,
     });
-    const functionArgsJson = encodeFunctionArgsJson(decoded.args as readonly unknown[]);
+    const args = decoded.args as readonly unknown[];
+    const fragment =
+      args.length === 6
+        ? UNISWAP_PROXY_EXECUTE
+        : args.length === 3
+          ? UNIVERSAL_ROUTER_EXECUTE_WITH_DEADLINE
+          : args.length === 2
+            ? UNIVERSAL_ROUTER_EXECUTE
+            : undefined;
+    if (!fragment) return null;
+    const functionArgsJson = encodeFunctionArgsJson(args);
     return {
       functionName: "execute",
       functionArgsJson,
-      abiJson: JSON.stringify(UNISWAP_SWAP_EXECUTE_ABI),
+      abiJson: JSON.stringify([fragment]),
     };
   } catch {
     return null;

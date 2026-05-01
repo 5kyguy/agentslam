@@ -99,6 +99,7 @@ test("KeeperHub calldata helpers decode Universal Router execute calldata", () =
   assert.ok(decoded);
   assert.equal(decoded.functionName, "execute");
   assert.equal(decoded.functionArgsJson, JSON.stringify(["0x0b00", ["0x1234", "0xabcd"], "123"]));
+  assert.equal((JSON.parse(decoded.abiJson) as Array<{ inputs: unknown[] }>)[0]?.inputs.length, 3);
   assert.equal(chainIdToKeeperHubNetwork(8453), "base");
   assert.equal(chainIdToKeeperHubNetwork(999999), undefined);
 });
@@ -118,6 +119,7 @@ test("KeeperHub calldata helpers decode Uniswap proxy approval execute calldata"
       "1777486606",
     ]),
   );
+  assert.equal((JSON.parse(decoded.abiJson) as Array<{ inputs: unknown[] }>)[0]?.inputs.length, 6);
 });
 
 test("KeeperHub status normalization handles common terminal variants", () => {
