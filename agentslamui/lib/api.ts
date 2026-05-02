@@ -171,6 +171,7 @@ export interface MemoryPage {
   events: MemoryEvent[];
   nextCursor: number | null;
   source: string;
+  lastTxHash?: string;
 }
 
 export interface ZgMemorySnapshot {

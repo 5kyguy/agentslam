@@ -33,6 +33,7 @@ export type ProofSummary = {
   memoryEvents: number;
   zgConfigured: boolean;
   zgHasSnapshot: boolean;
+  zgLastTxHash?: string;
 };
 
 const STYLE_SEQUENCE: AgentBrand["style"][] = ["stoic", "berserk", "purple", "gold"];
@@ -270,6 +271,7 @@ export function summarizeProofs(
   memoryEvents: number,
   zgConfigured: boolean,
   zgHasSnapshot: boolean,
+  zgLastTxHash?: string,
 ): ProofSummary {
   const routes = new Set(trades.map((trade) => trade.quoteRouting).filter((route): route is string => Boolean(route)));
   const modes = new Set(trades.map((trade) => trade.executionMode).filter(Boolean));
@@ -284,5 +286,6 @@ export function summarizeProofs(
     memoryEvents,
     zgConfigured,
     zgHasSnapshot,
+    zgLastTxHash,
   };
 }

@@ -187,8 +187,9 @@ export function useMatchSimulation(matchId: string) {
         memory?.events.length ?? 0,
         zgMemory?.configured ?? false,
         Boolean(zgMemory?.raw),
+        memory?.lastTxHash,
       ),
-    [executions, memory?.events.length, trades, zgMemory?.configured, zgMemory?.raw],
+    [executions, memory?.events.length, memory?.lastTxHash, trades, zgMemory?.configured, zgMemory?.raw],
   );
 
   const metrics = useMemo(

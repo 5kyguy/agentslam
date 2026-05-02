@@ -37,6 +37,8 @@ export class ZeroGMemoryService {
   private lastFlushTxHash: string | undefined;
   private writePausedUntil = 0;
   private lastCooldownLogAt = 0;
+  private readonly lastFlushAtByMatch = new Map<string, number>();
+  private readonly inflightFlushByMatch = new Map<string, Promise<void>>();
 
   constructor(
     private readonly config: AppConfig,
@@ -73,16 +75,22 @@ export class ZeroGMemoryService {
   }
 
   private shouldFlushOnEvent(ev: MemoryEvent): boolean {
+    // Always flush match lifecycle boundaries — these mark recoverable replay points.
     if (ev.kind === "match_started" || ev.kind === "match_completed" || ev.kind === "match_stopped") {
       return true;
     }
+    // Mid-match events go through a debounce gate so we don't resubmit the entire growing
+    // snapshot on every tick — that's what was causing the flow contract to revert with
+    // require(false) under contention.
+    const debounceMs = Math.max(0, this.config.zerog.flushDebounceMs);
+    const last = this.lastFlushAtByMatch.get(ev.matchId) ?? 0;
     if (ev.kind === "trade_executed") {
-      return true;
+      return Date.now() - last >= debounceMs;
     }
     if (ev.kind === "decision") {
       const action = String((ev.payload as { action?: unknown }).action ?? "").toLowerCase();
-      // Hold ticks are high-frequency and do not materially change state.
-      return action !== "hold";
+      if (action === "hold") return false;
+      return Date.now() - last >= debounceMs;
     }
     return false;
   }
@@ -92,10 +100,21 @@ export class ZeroGMemoryService {
   }
 
   private async flushMatchNow(matchId: string): Promise<void> {
+    // Coalesce concurrent flush requests for the same match so we don't fire overlapping
+    // flow.submit() transactions — those races trigger the contract's require(false) revert.
+    const existing = this.inflightFlushByMatch.get(matchId);
+    if (existing) return existing;
+    const run = this.runFlush(matchId).finally(() => {
+      this.inflightFlushByMatch.delete(matchId);
+    });
+    this.inflightFlushByMatch.set(matchId, run);
+    return run;
+  }
+
+  private async runFlush(matchId: string): Promise<void> {
     if (!this.kv?.isConfigured()) return;
     const now = Date.now();
     if (now < this.writePausedUntil) {
-      // Keep logs useful without spamming each debounce tick while remote KV/indexer is behind.
       if (now - this.lastCooldownLogAt > 30_000) {
         this.lastCooldownLogAt = now;
         console.warn("[ZeroGMemory] write paused during cooldown", {
@@ -120,6 +139,7 @@ export class ZeroGMemoryService {
       return;
     }
     this.lastFlushTxHash = res.txHash;
+    this.lastFlushAtByMatch.set(matchId, Date.now());
     console.log("[ZeroGMemory] flushed match snapshot", { matchId, txHash: res.txHash });
 
     const agentIds = new Set<string>();

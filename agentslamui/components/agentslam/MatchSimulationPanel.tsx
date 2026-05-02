@@ -295,11 +295,27 @@ export function MatchSimulationPanel({
           <div className="mt10 flex-col gap8">
             <StatRow label="Memory events" value={proofSummary.memoryEvents} />
             <StatRow label="KV configured" value={proofSummary.zgConfigured ? "yes" : "no"} />
-            <StatRow label="KV snapshot" value={proofSummary.zgHasSnapshot ? "available" : "pending"} />
+            <StatRow
+              label="Last write"
+              value={proofSummary.zgLastTxHash ? `${proofSummary.zgLastTxHash.slice(0, 10)}…` : "pending"}
+            />
+            <StatRow label="KV read-back" value={proofSummary.zgHasSnapshot ? "synced" : "pending"} />
           </div>
           <div className="body-xs mt10">
             Source: {memory?.source ?? "memory"} · Raw bytes: {zgMemory?.raw?.length ?? 0}
           </div>
+          {proofSummary.zgLastTxHash && (
+            <div className="body-xs mt6">
+              <a
+                href={`https://chainscan-galileo.0g.ai/tx/${proofSummary.zgLastTxHash}`}
+                target="_blank"
+                rel="noreferrer"
+                className="section-link"
+              >
+                View on chainscan
+              </a>
+            </div>
+          )}
         </BentoCell>
       </BentoGrid>
 
